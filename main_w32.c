@@ -12,11 +12,10 @@ function void
 dispatch_file_watch(OS *os, FileWatchDirectory *fw_dir, u8 *buf, Arena arena)
 {
 	i64 offset = 0;
-	TempArena save_point = {0};
+	Arena start_arena = arena;
 	w32_file_notify_info *fni = (w32_file_notify_info *)buf;
 	do {
-		end_temp_arena(save_point);
-		save_point = begin_temp_arena(&arena);
+		arena = start_arena;
 
 		Stream path = {.data = arena_commit(&arena, KB(1)), .cap = KB(1)};
 
@@ -52,7 +51,7 @@ dispatch_file_watch(OS *os, FileWatchDirectory *fw_dir, u8 *buf, Arena arena)
 }
 
 function void
-clear_io_queue(OS *os, BeamformerInput *input, Arena arena)
+clear_io_queue(OS *os, Arena arena)
 {
 	w32_context *ctx = (w32_context *)os->context;
 
@@ -78,13 +77,9 @@ clear_io_queue(OS *os, BeamformerInput *input, Arena arena)
 extern i32
 main(void)
 {
-	BeamformerCtx   ctx   = {0};
-	BeamformerInput input = {.executable_reloaded = 1};
-	Arena temp_memory = os_alloc_arena((Arena){0}, MB(16));
-
-	#define X(name) ctx.os.name = os_ ## name;
-	OS_FNS
-	#undef X
+	Arena memory       = os_alloc_arena(MB(16));
+	ViewerContext *ctx = push_struct(&memory, ViewerContext);
+	ctx->arena         = memory;
 
 	w32_context w32_ctx = {0};
 	w32_ctx.io_completion_handle = CreateIoCompletionPort(INVALID_FILE, 0, 0, 0);

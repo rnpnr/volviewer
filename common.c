@@ -47,7 +47,7 @@ gl_debug_logger(u32 src, u32 type, u32 id, u32 lvl, s32 len, const char *msg, co
 	}
 	stream_append(e, (char *)msg, len);
 	stream_append_byte(e, '\n');
-	ctx->os->write_file(ctx->os->error_handle, stream_to_str8(e));
+	os_write_file(ctx->os->error_handle, stream_to_str8(e));
 	stream_reset(e, 0);
 }
 
@@ -70,7 +70,7 @@ compile_shader(OS *os, Arena a, u32 type, str8 shader, str8 name)
 		glGetShaderInfoLog(sid, len, &out_len, (char *)(buf.data + buf.widx));
 		stream_commit(&buf, out_len);
 		glDeleteShader(sid);
-		os->write_file(os->error_handle, stream_to_str8(&buf));
+		os_write_file(os->error_handle, stream_to_str8(&buf));
 
 		sid = 0;
 	}
@@ -94,7 +94,7 @@ link_program(OS *os, Arena a, u32 *shader_ids, u32 shader_id_count)
 		glGetProgramInfoLog(result, buf.cap - buf.widx, &len, (c8 *)(buf.data + buf.widx));
 		stream_reset(&buf, len);
 		stream_append_byte(&buf, '\n');
-		os->write_file(os->error_handle, stream_to_str8(&buf));
+		os_write_file(os->error_handle, stream_to_str8(&buf));
 		glDeleteProgram(result);
 		result = 0;
 	}
@@ -114,7 +114,7 @@ load_shader(OS *os, Arena arena, str8 vs_text, str8 fs_text, str8 info_name, str
 	if (result) {
 		Stream buf = arena_stream(arena);
 		stream_append_str8s(&buf, str8("loaded: "), info_name, str8("\n"));
-		os->write_file(os->error_handle, stream_to_str8(&buf));
+		os_write_file(os->error_handle, stream_to_str8(&buf));
 		LABEL_GL_OBJECT(GL_PROGRAM, result, label);
 	}
 
@@ -131,7 +131,7 @@ function FILE_WATCH_CALLBACK_FN(reload_shader)
 {
 	ShaderReloadContext *ctx = (typeof(ctx))user_data;
 	str8 header    = push_str8(&tmp, ctx->fragment_header);
-	str8 fragment  = os->read_whole_file(&tmp, (c8 *)path.data);
+	str8 fragment  = os_read_whole_file(&tmp, (c8 *)path.data);
 	fragment.data -= header.len;
 	fragment.len  += header.len;
 	assert(fragment.data == header.data);
@@ -141,6 +141,36 @@ function FILE_WATCH_CALLBACK_FN(reload_shader)
 		ctx->render_context->shader = new_program;
 	}
 	return 1;
+}
+
+function RenderModel
+load_render_model(Arena arena, c8 *positions_file_name, c8 *indices_file_name)
+{
+	RenderModel result = {0};
+
+	str8 positions = os_read_whole_file(&arena, positions_file_name);
+	str8 indices   = os_read_whole_file(&arena, indices_file_name);
+
+	result.elements = indices.len / sizeof(u16);
+
+	s32 buffer_size = positions.len + indices.len;
+
+	result.elements_offset = positions.len;
+
+	glCreateBuffers(1, &result.buffer);
+	glNamedBufferStorage(result.buffer, buffer_size, 0, GL_DYNAMIC_STORAGE_BIT);
+	glNamedBufferSubData(result.buffer, 0,             positions.len, positions.data);
+	glNamedBufferSubData(result.buffer, positions.len, indices.len,   indices.data);
+
+	glCreateVertexArrays(1, &result.vao);
+	glVertexArrayVertexBuffer(result.vao, 0, result.buffer, 0, 3 * sizeof(f32));
+	glVertexArrayElementBuffer(result.vao, result.buffer);
+
+	glEnableVertexArrayAttrib(result.vao, 0);
+	glVertexArrayAttribFormat(result.vao,  0, 3, GL_FLOAT, 0, 0);
+	glVertexArrayAttribBinding(result.vao, 0, 0);
+
+	return result;
 }
 
 function void
@@ -190,29 +220,6 @@ init_viewer(ViewerContext *ctx)
 
 	RenderContext *rc = &ctx->model_render_context;
 
-	Vertex vertices[] = {
-		{.position = {{-0.5, -0.5, 0.0}}, .colour = {{1.0, 0.0, 0.0}}},
-		{.position = {{   0,  0.5, 0.0}}, .colour = {{0.0, 1.0, 0.0}}},
-		{.position = {{ 0.5, -0.5, 0.0}}, .colour = {{0.0, 0.0, 1.0}}},
-	};
-
-	glGenVertexArrays(1, &rc->vao);
-	glBindVertexArray(rc->vao);
-	glGenBuffers(1, &rc->vbo);
-	glBindBuffer(GL_ARRAY_BUFFER, rc->vbo);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
-	glVertexAttribPointer(0, 3, GL_FLOAT, 0, sizeof(Vertex), (void *)offsetof(Vertex, normal));
-	glVertexAttribPointer(1, 3, GL_FLOAT, 0, sizeof(Vertex), (void *)offsetof(Vertex, position));
-	glVertexAttribPointer(2, 3, GL_FLOAT, 0, sizeof(Vertex), (void *)offsetof(Vertex, texture_coordinate));
-	glVertexAttribPointer(3, 3, GL_FLOAT, 0, sizeof(Vertex), (void *)offsetof(Vertex, colour));
-	glVertexAttribPointer(4, 1, GL_INT,   0, sizeof(Vertex), (void *)offsetof(Vertex, flags));
-	glEnableVertexAttribArray(0);
-	glEnableVertexAttribArray(1);
-	glEnableVertexAttribArray(2);
-	glEnableVertexAttribArray(3);
-	glEnableVertexAttribArray(4);
-
 	RenderTarget *rt = &ctx->output_target;
 	glCreateTextures(GL_TEXTURE_2D, countof(rt->textures), rt->textures);
 	rt->size = (sv2){{RENDER_TARGET_SIZE}};
@@ -228,26 +235,15 @@ init_viewer(ViewerContext *ctx)
 	model_rc->vertex_text = str8(""
 	"#version 460 core\n"
 	"\n"
-	"layout(location = 0) in vec3 v_normal;\n"
-	"layout(location = 1) in vec3 v_position;\n"
-	"layout(location = 2) in vec3 v_texture_coordinate;\n"
-	"layout(location = 3) in vec3 v_colour;\n"
-	"layout(location = 4) in uint v_flags;\n"
-	"\n"
-	"layout(location = 0) out vec3 f_texture_coordinate;\n"
-	"layout(location = 1) out vec3 f_colour;\n"
+	"layout(location = 0) in vec3 v_position;\n"
 	"\n"
 	"void main()\n"
 	"{\n"
-	"\tf_texture_coordinate = v_texture_coordinate;\n"
-	"\tf_colour             = v_colour;\n"
-	"\tgl_Position = vec4(v_position, 1);\n"
+	"\tgl_Position = vec4(0.5 * v_position, 1);\n"
 	"}\n");
 
 	model_rc->fragment_header = str8(""
 	"#version 460 core\n\n"
-	"layout(location = 0) in  vec3 texture_coordinate;\n"
-	"layout(location = 1) in  vec3 colour;\n"
 	"layout(location = 0) out vec4 out_colour;\n\n"
 	"layout(location = " str(VIEWER_RENDER_DYNAMIC_RANGE_LOC) ") uniform float u_db_cutoff = 60;\n"
 	"layout(location = " str(VIEWER_RENDER_THRESHOLD_LOC)     ") uniform float u_threshold = 40;\n"
@@ -314,6 +310,9 @@ init_viewer(ViewerContext *ctx)
 	str8 render_overlay = str8("render_overlay.frag.glsl");
 	reload_shader(&ctx->os, render_overlay, (sptr)overlay_rc, ctx->arena);
 	os_add_file_watch(&ctx->os, &ctx->arena, render_overlay, reload_shader, (sptr)overlay_rc);
+
+	ctx->unit_cube = load_render_model(ctx->arena, "unit_cube_positions.bin",
+	                                   "unit_cube_indices.bin");
 }
 
 function void
@@ -326,8 +325,9 @@ viewer_frame_step(ViewerContext *ctx)
 	glViewport(0, 0, ctx->output_target.size.w, ctx->output_target.size.h);
 
 	glUseProgram(ctx->model_render_context.shader);
-	glBindVertexArray(ctx->model_render_context.vao);
-	glDrawArrays(GL_TRIANGLES, 0, 3);
+	glBindVertexArray(ctx->unit_cube.vao);
+	glDrawElements(GL_TRIANGLES, ctx->unit_cube.elements, GL_UNSIGNED_SHORT,
+	               (void *)ctx->unit_cube.elements_offset);
 
 	////////////////
 	// UI Overlay

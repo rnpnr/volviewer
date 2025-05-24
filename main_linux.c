@@ -51,10 +51,6 @@ main(void)
 	ViewerContext *ctx = push_struct(&memory, ViewerContext);
 	ctx->arena         = memory;
 
-	#define X(name) ctx->os.name = os_ ## name;
-	OS_FNS
-	#undef X
-
 	ctx->os.file_watch_context.handle = inotify_init1(IN_NONBLOCK|IN_CLOEXEC);
 	ctx->os.error_handle              = STDERR_FILENO;
 

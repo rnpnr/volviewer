@@ -257,17 +257,7 @@ typedef OS_WRITE_NEW_FILE_FN(os_write_new_file_fn);
 #define OS_WRITE_FILE_FN(name) b32 name(sptr file, str8 raw)
 typedef OS_WRITE_FILE_FN(os_write_file_fn);
 
-#define OS_FNS \
-	X(add_file_watch)  \
-	X(alloc_arena)     \
-	X(read_whole_file) \
-	X(write_new_file)  \
-	X(write_file)
-
 struct OS {
-#define X(name) os_ ## name ## _fn *name;
-	OS_FNS
-#undef X
 	FileWatchContext file_watch_context;
 	sptr             context;
 	sptr             error_handle;
@@ -286,6 +276,13 @@ typedef struct {
 } RenderTarget;
 
 typedef struct {
+	sptr elements_offset;
+	s32  elements;
+	u32  buffer;
+	u32  vao;
+} RenderModel;
+
+typedef struct {
 	Arena arena;
 	OS    os;
 
@@ -293,6 +290,7 @@ typedef struct {
 	RenderContext overlay_render_context;
 
 	RenderTarget output_target;
+	RenderModel  unit_cube;
 
 	sv2 window_size;
 
