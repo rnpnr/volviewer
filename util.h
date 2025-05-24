@@ -37,6 +37,9 @@
 /* TODO(rnp): msvc probably won't build this but there are other things preventing that as well */
 #define sqrt_f32(a)     __builtin_sqrtf(a)
 #define atan2_f32(y, x) __builtin_atan2f(y, x)
+#define sin_f32(x)      __builtin_sinf(x)
+#define cos_f32(x)      __builtin_cosf(x)
+#define tan_f32(x)      __builtin_tanf(x)
 
 #if ARCH_ARM64
   /* TODO? debuggers just loop here forever and need a manual PC increment (step over) */
@@ -110,6 +113,8 @@
 #define I32_MAX          (0x7FFFFFFFL)
 #define U32_MAX          (0xFFFFFFFFUL)
 #define F32_INFINITY     (__builtin_inff())
+
+#define PI (3.14159265358979323846)
 
 #define INVALID_FILE (-1)
 
@@ -294,6 +299,10 @@ typedef struct {
 
 	sv2 window_size;
 
+	f32 cycle_t;
+	f32 camera_angle;
+	f32 camera_radius;
+	v3  camera_position;
 	b32 should_exit;
 
 	void *window;

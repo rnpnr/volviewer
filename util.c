@@ -80,6 +80,53 @@ da_reserve_(Arena *a, void *data, sz *capacity, sz needed, sz align, sz size)
 	return data;
 }
 
+function sv2
+sv2_sub(sv2 a, sv2 b)
+{
+	sv2 result;
+	result.x = a.x - b.x;
+	result.y = a.y - b.y;
+	return result;
+}
+
+function v3
+v3_sub(v3 a, v3 b)
+{
+	v3 result;
+	result.x = a.x - b.x;
+	result.y = a.y - b.y;
+	result.z = a.z - b.z;
+	return result;
+}
+
+function f32
+v3_dot(v3 a, v3 b)
+{
+	f32 result = a.x * b.x + a.y * b.y + a.z * b.z;
+	return result;
+}
+
+function v3
+v3_normalize(v3 a)
+{
+	f32 scale   = sqrt_f32(1 / v3_dot(a, a));
+	v3  result  = a;
+	result.x   *= scale;
+	result.y   *= scale;
+	result.z   *= scale;
+	return result;
+}
+
+function v3
+cross(v3 a, v3 b)
+{
+	v3 result;
+	result.x = a.y * b.z - a.z * b.y;
+	result.y = a.z * b.x - a.x * b.z;
+	result.z = a.x * b.y - a.y * b.x;
+	return result;
+}
+
 function u32
 utf8_encode(u8 *out, u32 cp)
 {
@@ -404,15 +451,6 @@ parse_f64(str8 s)
 		fractional += (f64)(s.data[--s.len] - '0') / 10.0;
 	}
 	f64 result = sign * (integral + fractional);
-	return result;
-}
-
-function sv2
-sv2_sub(sv2 a, sv2 b)
-{
-	sv2 result;
-	result.x = a.x - b.x;
-	result.y = a.y - b.y;
 	return result;
 }
 

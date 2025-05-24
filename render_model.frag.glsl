@@ -36,5 +36,5 @@ void main()
 	//v_out_colour = vec4(hsv2rgb(vec3(360 * smp, 0.8, 0.95)), 1);
 	#endif
 
-	out_colour = vec4(1);
+	out_colour = vec4(abs(normal), 1);
 }

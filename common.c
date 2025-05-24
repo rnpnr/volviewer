@@ -4,7 +4,9 @@
 #include "GLFW/glfw3.h"
 
 #define BG_CLEAR_COLOUR    (v4){{0.12, 0.1, 0.1, 1}}
-#define RENDER_TARGET_SIZE 720, 720
+#define RENDER_TARGET_SIZE 1024, 1024
+
+#define CAMERA_ELEVATION_ANGLE 30.0f
 
 /* NOTE(rnp): for video output we will render a full rotation in this much time at the
  * the specified frame rate */
@@ -12,10 +14,13 @@
 #define OUTPUT_FRAME_RATE      30.0f
 #define OUTPUT_BG_CLEAR_COLOUR (v4){{0.0, 0.2, 0.0, 1}}
 
-#define VIEWER_RENDER_DYNAMIC_RANGE_LOC (0)
-#define VIEWER_RENDER_THRESHOLD_LOC     (1)
-#define VIEWER_RENDER_GAMMA_LOC         (2)
-#define VIEWER_RENDER_LOG_SCALE_LOC     (3)
+#define MODEL_RENDER_MODEL_MATRIX_LOC  (0)
+#define MODEL_RENDER_VIEW_MATRIX_LOC   (1)
+#define MODEL_RENDER_PROJ_MATRIX_LOC   (2)
+#define MODEL_RENDER_LOG_SCALE_LOC     (3)
+#define MODEL_RENDER_DYNAMIC_RANGE_LOC (4)
+#define MODEL_RENDER_THRESHOLD_LOC     (5)
+#define MODEL_RENDER_GAMMA_LOC         (6)
 
 typedef struct {
 	v3  normal;
@@ -144,33 +149,49 @@ function FILE_WATCH_CALLBACK_FN(reload_shader)
 }
 
 function RenderModel
-load_render_model(Arena arena, c8 *positions_file_name, c8 *indices_file_name)
+load_render_model(Arena arena, c8 *positions_file_name, c8 *indices_file_name, c8 *normals_file_name)
 {
 	RenderModel result = {0};
 
 	str8 positions = os_read_whole_file(&arena, positions_file_name);
+	str8 normals   = os_read_whole_file(&arena, normals_file_name);
 	str8 indices   = os_read_whole_file(&arena, indices_file_name);
 
 	result.elements = indices.len / sizeof(u16);
 
-	s32 buffer_size = positions.len + indices.len;
+	s32 buffer_size = positions.len + indices.len + normals.len;
 
-	result.elements_offset = positions.len;
+	s32 el_offset = positions.len + normals.len;
+	result.elements_offset = el_offset;
 
 	glCreateBuffers(1, &result.buffer);
 	glNamedBufferStorage(result.buffer, buffer_size, 0, GL_DYNAMIC_STORAGE_BIT);
 	glNamedBufferSubData(result.buffer, 0,             positions.len, positions.data);
-	glNamedBufferSubData(result.buffer, positions.len, indices.len,   indices.data);
+	glNamedBufferSubData(result.buffer, positions.len, normals.len,   normals.data);
+	glNamedBufferSubData(result.buffer, el_offset,     indices.len,   indices.data);
 
 	glCreateVertexArrays(1, &result.vao);
-	glVertexArrayVertexBuffer(result.vao, 0, result.buffer, 0, 3 * sizeof(f32));
+	glVertexArrayVertexBuffer(result.vao, 0, result.buffer, 0,             3 * sizeof(f32));
+	glVertexArrayVertexBuffer(result.vao, 1, result.buffer, positions.len, 3 * sizeof(f32));
 	glVertexArrayElementBuffer(result.vao, result.buffer);
 
 	glEnableVertexArrayAttrib(result.vao, 0);
-	glVertexArrayAttribFormat(result.vao,  0, 3, GL_FLOAT, 0, 0);
+	glEnableVertexArrayAttrib(result.vao, 1);
+
+	glVertexArrayAttribFormat(result.vao, 0, 3, GL_FLOAT, 0, 0);
+	glVertexArrayAttribFormat(result.vao, 1, 3, GL_FLOAT, 0, positions.len);
+
 	glVertexArrayAttribBinding(result.vao, 0, 0);
+	glVertexArrayAttribBinding(result.vao, 1, 0);
 
 	return result;
+}
+
+function void
+scroll_callback(GLFWwindow *window, f64 x, f64 y)
+{
+	ViewerContext *ctx  = glfwGetWindowUserPointer(window);
+	ctx->camera_radius += 0.2 * y;
 }
 
 function void
@@ -179,6 +200,9 @@ key_callback(GLFWwindow *window, s32 key, s32 scancode, s32 action, s32 modifier
 	ViewerContext *ctx = glfwGetWindowUserPointer(window);
 	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
 		ctx->should_exit = 1;
+
+	ctx->camera_angle += (key == GLFW_KEY_W && action != GLFW_RELEASE) * 5 * PI / 180.0f;
+	ctx->camera_angle -= (key == GLFW_KEY_S && action != GLFW_RELEASE) * 5 * PI / 180.0f;
 }
 
 function void
@@ -191,7 +215,9 @@ fb_callback(GLFWwindow *window, s32 w, s32 h)
 function void
 init_viewer(ViewerContext *ctx)
 {
-	ctx->window_size  = (sv2){.w = 640, .h = 640};
+	ctx->window_size   = (sv2){.w = 640, .h = 640};
+	ctx->camera_radius = 5;
+	ctx->camera_angle  = CAMERA_ELEVATION_ANGLE * PI / 180.0f;
 
 	if (!glfwInit()) os_fatal(str8("failed to start glfw\n"));
 
@@ -205,6 +231,7 @@ init_viewer(ViewerContext *ctx)
 	glfwSwapInterval(1);
 
 	glfwSetKeyCallback(ctx->window, key_callback);
+	glfwSetScrollCallback(ctx->window, scroll_callback);
 	glfwSetFramebufferSizeCallback(ctx->window, fb_callback);
 
 	if (!gladLoadGL(glfwGetProcAddress)) os_fatal(str8("failed to load glad\n"));
@@ -217,6 +244,8 @@ init_viewer(ViewerContext *ctx)
 #ifdef _DEBUG
 	glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
 #endif
+
+	glEnable(GL_DEPTH_TEST);
 
 	RenderContext *rc = &ctx->model_render_context;
 
@@ -236,24 +265,47 @@ init_viewer(ViewerContext *ctx)
 	"#version 460 core\n"
 	"\n"
 	"layout(location = 0) in vec3 v_position;\n"
+	"layout(location = 1) in vec3 v_normal;\n"
+	"\n"
+	"layout(location = 0) out vec3 f_normal;\n"
+	"\n"
+	"layout(location = " str(MODEL_RENDER_MODEL_MATRIX_LOC) ") uniform mat4 u_model;\n"
+	"layout(location = " str(MODEL_RENDER_VIEW_MATRIX_LOC)  ") uniform mat4 u_view;\n"
+	"layout(location = " str(MODEL_RENDER_PROJ_MATRIX_LOC)  ") uniform mat4 u_projection;\n"
+	"\n"
 	"\n"
 	"void main()\n"
 	"{\n"
-	"\tgl_Position = vec4(0.5 * v_position, 1);\n"
+	//"\tf_normal    = normalize(mat3(u_model) * v_normal);\n"
+	"\tf_normal    = v_normal;\n"
+	"\tgl_Position = u_projection * u_view * u_model * vec4(v_position, 1);\n"
 	"}\n");
 
 	model_rc->fragment_header = str8(""
 	"#version 460 core\n\n"
+	"layout(location = 0) in  vec3 normal;\n\n"
 	"layout(location = 0) out vec4 out_colour;\n\n"
-	"layout(location = " str(VIEWER_RENDER_DYNAMIC_RANGE_LOC) ") uniform float u_db_cutoff = 60;\n"
-	"layout(location = " str(VIEWER_RENDER_THRESHOLD_LOC)     ") uniform float u_threshold = 40;\n"
-	"layout(location = " str(VIEWER_RENDER_GAMMA_LOC)         ") uniform float u_gamma     = 1;\n"
-	"layout(location = " str(VIEWER_RENDER_LOG_SCALE_LOC)     ") uniform bool  u_log_scale;\n"
+	"layout(location = " str(MODEL_RENDER_DYNAMIC_RANGE_LOC) ") uniform float u_db_cutoff = 60;\n"
+	"layout(location = " str(MODEL_RENDER_THRESHOLD_LOC)     ") uniform float u_threshold = 40;\n"
+	"layout(location = " str(MODEL_RENDER_GAMMA_LOC)         ") uniform float u_gamma     = 1;\n"
+	"layout(location = " str(MODEL_RENDER_LOG_SCALE_LOC)     ") uniform bool  u_log_scale;\n"
 	"\n#line 1\n");
 
 	str8 render_model = str8("render_model.frag.glsl");
 	reload_shader(&ctx->os, render_model, (sptr)model_rc, ctx->arena);
 	os_add_file_watch(&ctx->os, &ctx->arena, render_model, reload_shader, (sptr)model_rc);
+
+	/* TODO(rnp): think about a reasonable region (probably min_coord -> max_coord + 10%) */
+	f32 n = 1;
+	f32 f = 20;
+	f32 a = -f / (f - n);
+	f32 b = -f * n / (f - n);
+	m4 projection;
+	projection.c[0] = (v4){{1, 0, 0,  0}};
+	projection.c[1] = (v4){{0, 1, 0,  0}};
+	projection.c[2] = (v4){{0, 0, a, -1}};
+	projection.c[3] = (v4){{0, 0, b,  0}};
+	glProgramUniformMatrix4fv(rc->shader, MODEL_RENDER_PROJ_MATRIX_LOC, 1, 0, projection.E);
 
 	rc = &ctx->overlay_render_context;
 	ShaderReloadContext *overlay_rc = push_struct(&ctx->arena, ShaderReloadContext);
@@ -312,19 +364,63 @@ init_viewer(ViewerContext *ctx)
 	os_add_file_watch(&ctx->os, &ctx->arena, render_overlay, reload_shader, (sptr)overlay_rc);
 
 	ctx->unit_cube = load_render_model(ctx->arena, "unit_cube_positions.bin",
-	                                   "unit_cube_indices.bin");
+	                                   "unit_cube_indices.bin", "unit_cube_normals.bin");
 }
 
 function void
-viewer_frame_step(ViewerContext *ctx)
+set_camera(u32 program, u32 location, v3 position, v3 normal, v3 orthogonal)
 {
+	v3 right = cross(orthogonal, normal);
+	v3 up    = cross(normal,     right);
+
+	v3 translate;
+	position    = v3_sub((v3){0}, position);
+	translate.x = v3_dot(position, right);
+	translate.y = v3_dot(position, up);
+	translate.z = v3_dot(position, normal);
+
+	m4 transform;
+	transform.c[0] = (v4){{right.x,     up.x,        normal.x,    0}};
+	transform.c[1] = (v4){{right.y,     up.y,        normal.y,    0}};
+	transform.c[2] = (v4){{right.z,     up.z,        normal.z,    0}};
+	transform.c[3] = (v4){{translate.x, translate.y, translate.z, 1}};
+	glProgramUniformMatrix4fv(program, location, 1, 0, transform.E);
+}
+
+function void
+viewer_frame_step(ViewerContext *ctx, f32 dt)
+{
+	ctx->cycle_t += 0.25 * dt;
+	if (ctx->cycle_t > 1) ctx->cycle_t -= 1;
+
+	f32 angle = ctx->cycle_t * 2 * PI;
+	ctx->camera_position.x =  ctx->camera_radius * cos_f32(angle);
+	ctx->camera_position.z = -ctx->camera_radius * sin_f32(angle);
+	ctx->camera_position.y =  ctx->camera_radius * tan_f32(ctx->camera_angle);
+
 	//////////////
 	// 3D Models
+	f32 one = 1;
 	glBindFramebuffer(GL_FRAMEBUFFER, ctx->output_target.fb);
 	glClearNamedFramebufferfv(ctx->output_target.fb, GL_COLOR, 0, OUTPUT_BG_CLEAR_COLOUR.E);
+	glClearNamedFramebufferfv(ctx->output_target.fb, GL_DEPTH, 0, &one);
 	glViewport(0, 0, ctx->output_target.size.w, ctx->output_target.size.h);
 
 	glUseProgram(ctx->model_render_context.shader);
+
+	v3 camera = ctx->camera_position;
+	set_camera(ctx->model_render_context.shader, MODEL_RENDER_VIEW_MATRIX_LOC,
+	           camera, v3_normalize(v3_sub(camera, (v3){0})), (v3){{0, 1, 0}});
+
+	f32 scale = 2;
+	m4 model_transform;
+	model_transform.c[0] = (v4){{scale, 0,     0,     0}};
+	model_transform.c[1] = (v4){{0,     scale, 0,     0}};
+	model_transform.c[2] = (v4){{0,     0,     scale, 0}};
+	model_transform.c[3] = (v4){{0,     0,     0,     1}};
+	glProgramUniformMatrix4fv(ctx->model_render_context.shader, MODEL_RENDER_MODEL_MATRIX_LOC,
+	                          1, 0, model_transform.E);
+
 	glBindVertexArray(ctx->unit_cube.vao);
 	glDrawElements(GL_TRIANGLES, ctx->unit_cube.elements, GL_UNSIGNED_SHORT,
 	               (void *)ctx->unit_cube.elements_offset);
@@ -333,6 +429,7 @@ viewer_frame_step(ViewerContext *ctx)
 	// UI Overlay
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glClearNamedFramebufferfv(0, GL_COLOR, 0, BG_CLEAR_COLOUR.E);
+	glClearNamedFramebufferfv(0, GL_DEPTH, 0, &one);
 
 	f32 aspect_ratio = (f32)ctx->output_target.size.w / (f32)ctx->output_target.size.h;
 	sv2 target_size  = ctx->window_size;
