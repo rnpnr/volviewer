@@ -200,7 +200,11 @@ function OS_ADD_FILE_WATCH_FN(os_add_file_watch)
 {
 	str8 directory  = path;
 	directory.len = str8_scan_backwards(path, '\\');
-	if (directory.len < 0) directory = str8(".\\");
+	if (directory.len < 0) {
+		directory = str8(".");
+	} else {
+		path = str8_cut_head(path, directory.len + 1);
+	}
 
 	u64 hash = str8_hash(directory);
 	FileWatchContext *fwctx = &os->file_watch_context;
@@ -230,5 +234,5 @@ function OS_ADD_FILE_WATCH_FN(os_add_file_watch)
 	FileWatch *fw = da_push(a, dir);
 	fw->user_data = user_data;
 	fw->callback  = callback;
-	fw->hash      = str8_hash(str8_cut_head(path, dir->name.len + 1));
+	fw->hash      = str8_hash(path);
 }
