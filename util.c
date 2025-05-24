@@ -407,6 +407,15 @@ parse_f64(str8 s)
 	return result;
 }
 
+function sv2
+sv2_sub(sv2 a, sv2 b)
+{
+	sv2 result;
+	result.x = a.x - b.x;
+	result.y = a.y - b.y;
+	return result;
+}
+
 function FileWatchDirectory *
 lookup_file_watch_directory(FileWatchContext *ctx, u64 hash)
 {

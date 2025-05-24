@@ -280,10 +280,19 @@ typedef struct {
 } RenderContext;
 
 typedef struct {
+	u32 fb;
+	u32 textures[2];
+	sv2 size;
+} RenderTarget;
+
+typedef struct {
 	Arena arena;
 	OS    os;
 
-	RenderContext render_context;
+	RenderContext model_render_context;
+	RenderContext overlay_render_context;
+
+	RenderTarget output_target;
 
 	sv2 window_size;
 
