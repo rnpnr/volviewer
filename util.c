@@ -127,6 +127,49 @@ cross(v3 a, v3 b)
 	return result;
 }
 
+function f32
+v4_dot(v4 a, v4 b)
+{
+	f32 result = 0;
+	result += a.x * b.x;
+	result += a.y * b.y;
+	result += a.z * b.z;
+	result += a.w * b.w;
+	return result;
+}
+
+function v4
+m4_row(m4 a, u32 row)
+{
+	v4 result;
+	result.E[0] = a.c[0].E[row];
+	result.E[1] = a.c[1].E[row];
+	result.E[2] = a.c[2].E[row];
+	result.E[3] = a.c[3].E[row];
+	return result;
+}
+
+function v4
+m4_column(m4 a, u32 column)
+{
+	v4 result = a.c[column];
+	return result;
+}
+
+function m4
+m4_mul(m4 a, m4 b)
+{
+	m4 result;
+	for (u32 i = 0; i < countof(result.E); i++) {
+		u32 base = i / 4;
+		u32 sub  = i % 4;
+		v4 v1 = m4_row(a, base);
+		v4 v2 = m4_column(b, sub);
+		result.E[i] = v4_dot(v1, v2);
+	}
+	return result;
+}
+
 function u32
 utf8_encode(u8 *out, u32 cp)
 {

@@ -35,11 +35,12 @@ typedef struct {
 	u32  texture;
 } VolumeDisplayItem;
 
-#define DRAW_ALL_VOLUMES 0
+#define DRAW_ALL_VOLUMES 1
 global u32 single_volume_index = 0;
 global VolumeDisplayItem volumes[] = {
 	/* WALKING FORCES */
-	{"./data/test/frame_%02u.bin", 512, 1024, 64, {{-18.5, -9.6, 5}}, {{18.5, 9.6, 42}}, 0.58, 62, 0, 0, 1},
+	{"./data/test/frame_%02u.bin", 512, 1024, 64, {{-18.5, -9.6, 5}}, {{18.5, 9.6, 42}}, 0.58, 62, 3 * -18.5, 0, 1},
+	{"./data/test/frame_%02u.bin", 512, 1024, 64, {{-18.5, -9.6, 5}}, {{18.5, 9.6, 42}}, 0.58, 62, 3 *  18.5, 0, 1},
 };
 
 #define MODEL_RENDER_MODEL_MATRIX_LOC  (0)
@@ -481,7 +482,7 @@ set_camera(u32 program, u32 location, v3 position, v3 normal, v3 orthogonal)
 }
 
 function void
-draw_volume_item(ViewerContext *ctx, VolumeDisplayItem *v)
+draw_volume_item(ViewerContext *ctx, VolumeDisplayItem *v, f32 rotation)
 {
 	if (!v->texture) {
 		v->texture = load_complex_texture(ctx->arena, v->file_path, v->multi_file,
@@ -490,11 +491,27 @@ draw_volume_item(ViewerContext *ctx, VolumeDisplayItem *v)
 
 	u32 program = ctx->model_render_context.shader;
 	v3 scale = v3_sub(v->max_coord_mm, v->min_coord_mm);
-	m4 model_transform;
-	model_transform.c[0] = (v4){{scale.x,        0,       0,       0}};
-	model_transform.c[1] = (v4){{0,              scale.z, 0,       0}};
-	model_transform.c[2] = (v4){{0,              0,       scale.y, 0}};
-	model_transform.c[3] = (v4){{v->translate_x, 0,       0,       1}};
+	m4 S;
+	S.c[0] = (v4){{scale.x, 0,       0,       0}};
+	S.c[1] = (v4){{0,       scale.z, 0,       0}};
+	S.c[2] = (v4){{0,       0,       scale.y, 0}};
+	S.c[3] = (v4){{0,       0,       0,       1}};
+
+	m4 T;
+	T.c[0] = (v4){{1,              0, 0, v->translate_x}};
+	T.c[1] = (v4){{0,              1, 0, 0}};
+	T.c[2] = (v4){{0,              0, 1, 0}};
+	T.c[3] = (v4){{0, 0, 0, 1}};
+
+	f32 sa = sin_f32(rotation);
+	f32 ca = cos_f32(rotation);
+	m4 R;
+	R.c[0] = (v4){{ ca, 0, sa, 0}};
+	R.c[1] = (v4){{ 0,  1, 0,  0}};
+	R.c[2] = (v4){{-sa, 0, ca, 0}};
+	R.c[3] = (v4){{ 0,  0, 0,  1}};
+
+	m4 model_transform = m4_mul(m4_mul(R, S), T);
 	glProgramUniformMatrix4fv(program, MODEL_RENDER_MODEL_MATRIX_LOC, 1, 0, model_transform.E);
 
 	glProgramUniform1f(program, MODEL_RENDER_CLIP_FRACTION_LOC, 1 - v->clip_fraction);
@@ -513,8 +530,8 @@ update_scene(ViewerContext *ctx, f32 dt)
 	if (ctx->cycle_t > 1) ctx->cycle_t -= 1;
 
 	f32 angle = ctx->cycle_t * 2 * PI;
-	ctx->camera_position.x =  ctx->camera_radius * cos_f32(angle);
-	ctx->camera_position.z = -ctx->camera_radius * sin_f32(angle);
+	ctx->camera_position.x =  0;
+	ctx->camera_position.z = -ctx->camera_radius;
 	ctx->camera_position.y =  ctx->camera_radius * tan_f32(ctx->camera_angle);
 
 	RenderTarget *rt = &ctx->multisample_target;
@@ -549,9 +566,9 @@ update_scene(ViewerContext *ctx, f32 dt)
 
 	#if DRAW_ALL_VOLUMES
 	for (u32 i = 0; i < countof(volumes); i++)
-		draw_volume_item(ctx, volumes + i);
+		draw_volume_item(ctx, volumes + i, angle);
 	#else
-	draw_volume_item(ctx, volumes + single_volume_index);
+	draw_volume_item(ctx, volumes + single_volume_index, angle);
 	#endif
 
 	/* NOTE(rnp): resolve multisampled scene */
