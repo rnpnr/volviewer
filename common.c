@@ -6,30 +6,52 @@
 #include <stdio.h>
 #include <stdarg.h>
 
-global v3 min_coord_mm = {.x = -18.5, .y = -9.6, .z = 5};
-global v3 max_coord_mm = {.x =  18.5, .y =  9.6, .z = 42};
-
 /* NOTE(rnp): for video output we will render a full rotation in this much time at the
  * the specified frame rate */
 #define OUTPUT_TIME_SECONDS     8.0f
 #define OUTPUT_FRAME_RATE      30.0f
 #define OUTPUT_BG_CLEAR_COLOUR (v4){{0.05, 0.05, 0.05, 1}}
 
-#define RENDER_TARGET_SIZE     1024, 1024
-#define CAMERA_ELEVATION_ANGLE 30.0f
+#define RENDER_MSAA_SAMPLES    8
+#define RENDER_TARGET_SIZE     1920, 1080
+#define CAMERA_ELEVATION_ANGLE 25.0f
+#define CAMERA_RADIUS          200.0f
 
 #define BOUNDING_BOX_COLOUR    0.78, 0.07, 0.20, 1
-#define BOUNDING_BOX_FRACTION  0.005f
+#define BOUNDING_BOX_FRACTION  0.007f
+
+typedef struct {
+	c8  *file_path;
+	u32  width;         /* number of points in data */
+	u32  height;
+	u32  depth;
+	v3   min_coord_mm;
+	v3   max_coord_mm;
+	f32  clip_fraction; /* fraction of half volume used to create pyramidal shape (0 for cube) */
+	f32  threshold;
+	f32  translate_x;   /* mm to translate by when multi display is active */
+	b32  swizzle;       /* 1 -> swap y-z coordinates when sampling texture */
+	b32  multi_file;    /* 1 -> depth == N-frames, file_path == fmt string */
+	u32  texture;
+} VolumeDisplayItem;
+
+#define DRAW_ALL_VOLUMES 0
+global u32 single_volume_index = 0;
+global VolumeDisplayItem volumes[] = {
+	/* WALKING FORCES */
+	{"./data/test/frame_%02u.bin", 512, 1024, 64, {{-18.5, -9.6, 5}}, {{18.5, 9.6, 42}}, 0.58, 62, 0, 0, 1},
+};
 
 #define MODEL_RENDER_MODEL_MATRIX_LOC  (0)
 #define MODEL_RENDER_VIEW_MATRIX_LOC   (1)
 #define MODEL_RENDER_PROJ_MATRIX_LOC   (2)
-#define MODEL_RENDER_LOG_SCALE_LOC     (3)
-#define MODEL_RENDER_DYNAMIC_RANGE_LOC (4)
-#define MODEL_RENDER_THRESHOLD_LOC     (5)
-#define MODEL_RENDER_GAMMA_LOC         (6)
-#define MODEL_RENDER_BB_COLOUR_LOC     (7)
-#define MODEL_RENDER_BB_FRACTION_LOC   (8)
+#define MODEL_RENDER_CLIP_FRACTION_LOC (3)
+#define MODEL_RENDER_LOG_SCALE_LOC     (4)
+#define MODEL_RENDER_DYNAMIC_RANGE_LOC (5)
+#define MODEL_RENDER_THRESHOLD_LOC     (6)
+#define MODEL_RENDER_GAMMA_LOC         (7)
+#define MODEL_RENDER_BB_COLOUR_LOC     (8)
+#define MODEL_RENDER_BB_FRACTION_LOC   (9)
 
 #define BG_CLEAR_COLOUR    (v4){{0.12, 0.1, 0.1, 1}}
 
@@ -166,14 +188,14 @@ function FILE_WATCH_CALLBACK_FN(reload_shader)
 	return 1;
 }
 
-function Texture
+function u32
 load_complex_texture(Arena arena, c8 *file_path, b32 multi_file, u32 width, u32 height, u32 depth)
 {
-	Texture result = {0};
-	glCreateTextures(GL_TEXTURE_3D, 1, &result.texture);
-	glTextureStorage3D(result.texture, 1, GL_RG32F, width, height, depth);
-	glTextureParameteri(result.texture, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT);
-	glTextureParameteri(result.texture, GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT);
+	u32 result = 0;
+	glCreateTextures(GL_TEXTURE_3D, 1, &result);
+	glTextureStorage3D(result, 1, GL_RG32F, width, height, depth);
+	glTextureParameteri(result, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT);
+	glTextureParameteri(result, GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT);
 
 	if (multi_file) {
 		/* NOTE(rnp): assumes single plane */
@@ -182,13 +204,11 @@ load_complex_texture(Arena arena, c8 *file_path, b32 multi_file, u32 width, u32 
 			stream_printf(&spath, file_path, i);
 			str8 path = arena_stream_commit_zero(&arena, &spath);
 			str8 raw  = os_read_whole_file(&arena, (char *)path.data);
-			glTextureSubImage3D(result.texture, 0, 0, 0, i, width, height, 1, GL_RG,
-			                    GL_FLOAT, raw.data);
+			glTextureSubImage3D(result, 0, 0, 0, i, width, height, 1, GL_RG, GL_FLOAT, raw.data);
 		}
 	} else {
 		str8 raw = os_read_whole_file(&arena, file_path);
-		glTextureSubImage3D(result.texture, 0, 0, 0, 0, width, height, depth, GL_RG,
-		                    GL_FLOAT, raw.data);
+		glTextureSubImage3D(result, 0, 0, 0, 0, width, height, depth, GL_RG, GL_FLOAT, raw.data);
 	}
 	return result;
 }
@@ -236,7 +256,7 @@ function void
 scroll_callback(GLFWwindow *window, f64 x, f64 y)
 {
 	ViewerContext *ctx  = glfwGetWindowUserPointer(window);
-	ctx->camera_radius += y;
+	ctx->camera_fov += y;
 }
 
 function void
@@ -245,6 +265,14 @@ key_callback(GLFWwindow *window, s32 key, s32 scancode, s32 action, s32 modifier
 	ViewerContext *ctx = glfwGetWindowUserPointer(window);
 	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
 		ctx->should_exit = 1;
+
+	if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
+		ctx->demo_mode = !ctx->demo_mode;
+
+	if (key == GLFW_KEY_RIGHT && (action == GLFW_PRESS || action == GLFW_REPEAT))
+		ctx->input_dt += 4.0f / (OUTPUT_TIME_SECONDS * OUTPUT_FRAME_RATE);
+	if (key == GLFW_KEY_LEFT && (action == GLFW_PRESS || action == GLFW_REPEAT))
+		ctx->input_dt -= 4.0f / (OUTPUT_TIME_SECONDS * OUTPUT_FRAME_RATE);
 
 	ctx->camera_angle += (key == GLFW_KEY_W && action != GLFW_RELEASE) * 5 * PI / 180.0f;
 	ctx->camera_angle -= (key == GLFW_KEY_S && action != GLFW_RELEASE) * 5 * PI / 180.0f;
@@ -260,11 +288,14 @@ fb_callback(GLFWwindow *window, s32 w, s32 h)
 function void
 init_viewer(ViewerContext *ctx)
 {
+	ctx->demo_mode     = 1;
 	ctx->window_size   = (sv2){.w = 640, .h = 640};
-	ctx->camera_radius = 80;
+	ctx->camera_radius = CAMERA_RADIUS;
 	ctx->camera_angle  = -CAMERA_ELEVATION_ANGLE * PI / 180.0f;
+	ctx->camera_fov    = 60.0f;
 
 	if (!glfwInit()) os_fatal(str8("failed to start glfw\n"));
+
 
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
@@ -290,21 +321,36 @@ init_viewer(ViewerContext *ctx)
 	glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
 #endif
 
+	glEnable(GL_MULTISAMPLE);
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 	RenderContext *rc = &ctx->model_render_context;
 
-	RenderTarget *rt = &ctx->output_target;
+	RenderTarget *rt = &ctx->multisample_target;
+	rt->size = (sv2){{RENDER_TARGET_SIZE}};
+	glCreateRenderbuffers(countof(rt->textures), rt->textures);
+	glNamedRenderbufferStorageMultisample(rt->textures[0], RENDER_MSAA_SAMPLES,
+	                                      GL_RGBA8, RENDER_TARGET_SIZE);
+	glNamedRenderbufferStorageMultisample(rt->textures[1], RENDER_MSAA_SAMPLES,
+	                                      GL_DEPTH_COMPONENT24, RENDER_TARGET_SIZE);
+	glCreateFramebuffers(1, &rt->fb);
+	glNamedFramebufferRenderbuffer(rt->fb, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rt->textures[0]);
+	glNamedFramebufferRenderbuffer(rt->fb, GL_DEPTH_ATTACHMENT,  GL_RENDERBUFFER, rt->textures[1]);
+
+	rt = &ctx->output_target;
 	glCreateTextures(GL_TEXTURE_2D, countof(rt->textures), rt->textures);
 	rt->size = (sv2){{RENDER_TARGET_SIZE}};
-	glTextureStorage2D(rt->textures[0], 1, GL_RGBA8,             RENDER_TARGET_SIZE);
+	glTextureStorage2D(rt->textures[0], 8, GL_RGBA8,             RENDER_TARGET_SIZE);
 	glTextureStorage2D(rt->textures[1], 1, GL_DEPTH_COMPONENT24, RENDER_TARGET_SIZE);
 
 	glCreateFramebuffers(1, &rt->fb);
 	glNamedFramebufferTexture(rt->fb, GL_COLOR_ATTACHMENT0, rt->textures[0], 0);
 	glNamedFramebufferTexture(rt->fb, GL_DEPTH_ATTACHMENT,  rt->textures[1], 0);
+
+	glTextureParameteri(rt->textures[0], GL_TEXTURE_MAG_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+	glTextureParameteri(rt->textures[0], GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
 
 	ShaderReloadContext *model_rc = push_struct(&ctx->arena, ShaderReloadContext);
 	model_rc->render_context = rc;
@@ -318,16 +364,17 @@ init_viewer(ViewerContext *ctx)
 	"layout(location = 1) out vec3 f_texture_coordinate;\n"
 	"layout(location = 2) out vec3 f_orig_texture_coordinate;\n"
 	"\n"
-	"layout(location = " str(MODEL_RENDER_MODEL_MATRIX_LOC) ") uniform mat4 u_model;\n"
-	"layout(location = " str(MODEL_RENDER_VIEW_MATRIX_LOC)  ") uniform mat4 u_view;\n"
-	"layout(location = " str(MODEL_RENDER_PROJ_MATRIX_LOC)  ") uniform mat4 u_projection;\n"
+	"layout(location = " str(MODEL_RENDER_MODEL_MATRIX_LOC)  ") uniform mat4  u_model;\n"
+	"layout(location = " str(MODEL_RENDER_VIEW_MATRIX_LOC)   ") uniform mat4  u_view;\n"
+	"layout(location = " str(MODEL_RENDER_PROJ_MATRIX_LOC)   ") uniform mat4  u_projection;\n"
+	"layout(location = " str(MODEL_RENDER_CLIP_FRACTION_LOC) ") uniform float u_clip_fraction = 1;\n"
 	"\n"
 	"\n"
 	"void main()\n"
 	"{\n"
 	"\tvec3 pos = v_position;\n"
 	"\tf_orig_texture_coordinate = (v_position + 1) / 2;\n"
-	"\tif (v_position.y == -1) pos.x = clamp(v_position.x, -0.42, 0.42);\n"
+	"\tif (v_position.y == -1) pos.x = clamp(v_position.x, -u_clip_fraction, u_clip_fraction);\n"
 	"\tf_texture_coordinate = (pos + 1) / 2;\n"
 	//"\tf_normal    = normalize(mat3(u_model) * v_normal);\n"
 	"\tf_normal    = v_normal;\n"
@@ -411,9 +458,6 @@ init_viewer(ViewerContext *ctx)
 
 	ctx->unit_cube = load_render_model(ctx->arena, "unit_cube_positions.bin",
 	                                   "unit_cube_indices.bin", "unit_cube_normals.bin");
-
-	c8 *walking_cysts = "./data/test/frame_%02u.bin";
-	ctx->view_texture = load_complex_texture(ctx->arena, walking_cysts, 1, 512, 1024, 64);
 }
 
 function void
@@ -437,7 +481,33 @@ set_camera(u32 program, u32 location, v3 position, v3 normal, v3 orthogonal)
 }
 
 function void
-viewer_frame_step(ViewerContext *ctx, f32 dt)
+draw_volume_item(ViewerContext *ctx, VolumeDisplayItem *v)
+{
+	if (!v->texture) {
+		v->texture = load_complex_texture(ctx->arena, v->file_path, v->multi_file,
+		                                  v->width, v->height, v->depth);
+	}
+
+	u32 program = ctx->model_render_context.shader;
+	v3 scale = v3_sub(v->max_coord_mm, v->min_coord_mm);
+	m4 model_transform;
+	model_transform.c[0] = (v4){{scale.x,        0,       0,       0}};
+	model_transform.c[1] = (v4){{0,              scale.z, 0,       0}};
+	model_transform.c[2] = (v4){{0,              0,       scale.y, 0}};
+	model_transform.c[3] = (v4){{v->translate_x, 0,       0,       1}};
+	glProgramUniformMatrix4fv(program, MODEL_RENDER_MODEL_MATRIX_LOC, 1, 0, model_transform.E);
+
+	glProgramUniform1f(program, MODEL_RENDER_CLIP_FRACTION_LOC, 1 - v->clip_fraction);
+	glProgramUniform1f(program, MODEL_RENDER_THRESHOLD_LOC,     v->threshold);
+
+	glBindTextureUnit(0, v->texture);
+	glBindVertexArray(ctx->unit_cube.vao);
+	glDrawElements(GL_TRIANGLES, ctx->unit_cube.elements, GL_UNSIGNED_SHORT,
+	               (void *)ctx->unit_cube.elements_offset);
+}
+
+function void
+update_scene(ViewerContext *ctx, f32 dt)
 {
 	ctx->cycle_t += 0.25 * dt;
 	if (ctx->cycle_t > 1) ctx->cycle_t -= 1;
@@ -447,50 +517,58 @@ viewer_frame_step(ViewerContext *ctx, f32 dt)
 	ctx->camera_position.z = -ctx->camera_radius * sin_f32(angle);
 	ctx->camera_position.y =  ctx->camera_radius * tan_f32(ctx->camera_angle);
 
-	//////////////
-	// 3D Models
+	RenderTarget *rt = &ctx->multisample_target;
 	f32 one = 1;
-	glBindFramebuffer(GL_FRAMEBUFFER, ctx->output_target.fb);
-	glClearNamedFramebufferfv(ctx->output_target.fb, GL_COLOR, 0, OUTPUT_BG_CLEAR_COLOUR.E);
-	glClearNamedFramebufferfv(ctx->output_target.fb, GL_DEPTH, 0, &one);
-	glViewport(0, 0, ctx->output_target.size.w, ctx->output_target.size.h);
+	glBindFramebuffer(GL_FRAMEBUFFER, rt->fb);
+	glClearNamedFramebufferfv(rt->fb, GL_COLOR, 0, OUTPUT_BG_CLEAR_COLOUR.E);
+	glClearNamedFramebufferfv(rt->fb, GL_DEPTH, 0, &one);
+	glViewport(0, 0, rt->size.w, rt->size.h);
 
-	glUseProgram(ctx->model_render_context.shader);
+	u32 program = ctx->model_render_context.shader;
+	glUseProgram(program);
 
-	/* TODO(rnp): this needs to be set on hot reload */
-	/* TODO(rnp): think about a reasonable region (probably min_coord -> max_coord + 10%) */
-	f32 n = 1;
-	f32 f = 200;
-	f32 a = -f / (f - n);
-	f32 b = -f * n / (f - n);
+	/* TODO(rnp): set this on hot reload instead of every frame */
+	v2 points = {{RENDER_TARGET_SIZE}};
+	f32 n = 0.1f;
+	f32 f = 400.0f;
+	f32 r = n * tan_f32(ctx->camera_fov / 2 * PI / 180.0f);
+	f32 t = r * points.h / points.w;
+	f32 a = -(f + n) / (f - n);
+	f32 b = -2 * f * n / (f - n);
+
 	m4 projection;
-	projection.c[0] = (v4){{1, 0, 0,  0}};
-	projection.c[1] = (v4){{0, 1, 0,  0}};
-	projection.c[2] = (v4){{0, 0, a, -1}};
-	projection.c[3] = (v4){{0, 0, b,  0}};
-	glProgramUniformMatrix4fv(ctx->model_render_context.shader, MODEL_RENDER_PROJ_MATRIX_LOC,
-	                          1, 0, projection.E);
+	projection.c[0] = (v4){{n / r, 0,     0,  0}};
+	projection.c[1] = (v4){{0,     n / t, 0,  0}};
+	projection.c[2] = (v4){{0,     0,     a, -1}};
+	projection.c[3] = (v4){{0,     0,     b,  0}};
+	glProgramUniformMatrix4fv(program, MODEL_RENDER_PROJ_MATRIX_LOC, 1, 0, projection.E);
 
 	v3 camera = ctx->camera_position;
-	set_camera(ctx->model_render_context.shader, MODEL_RENDER_VIEW_MATRIX_LOC,
-	           camera, v3_normalize(v3_sub(camera, (v3){0})), (v3){{0, 1, 0}});
+	set_camera(program, MODEL_RENDER_VIEW_MATRIX_LOC, camera,
+	           v3_normalize(v3_sub(camera, (v3){0})), (v3){{0, 1, 0}});
 
-	v3 scale = v3_sub(max_coord_mm, min_coord_mm);
-	m4 model_transform;
-	model_transform.c[0] = (v4){{scale.x, 0,       0,       0}};
-	model_transform.c[1] = (v4){{0,       scale.z, 0,       0}};
-	model_transform.c[2] = (v4){{0,       0,       scale.y, 0}};
-	model_transform.c[3] = (v4){{0,       0,       0,       1}};
-	glProgramUniformMatrix4fv(ctx->model_render_context.shader, MODEL_RENDER_MODEL_MATRIX_LOC,
-	                          1, 0, model_transform.E);
+	#if DRAW_ALL_VOLUMES
+	for (u32 i = 0; i < countof(volumes); i++)
+		draw_volume_item(ctx, volumes + i);
+	#else
+	draw_volume_item(ctx, volumes + single_volume_index);
+	#endif
 
-	glBindTextureUnit(0, ctx->view_texture.texture);
-	glBindVertexArray(ctx->unit_cube.vao);
-	glDrawElements(GL_TRIANGLES, ctx->unit_cube.elements, GL_UNSIGNED_SHORT,
-	               (void *)ctx->unit_cube.elements_offset);
+	/* NOTE(rnp): resolve multisampled scene */
+	glBlitNamedFramebuffer(rt->fb, ctx->output_target.fb, 0, 0, rt->size.w, rt->size.h,
+	                       0, 0, rt->size.w, rt->size.h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+	glGenerateTextureMipmap(ctx->output_target.textures[0]);
+}
+
+function void
+viewer_frame_step(ViewerContext *ctx, f32 dt)
+{
+	if (dt != 0) update_scene(ctx, dt);
 
 	////////////////
 	// UI Overlay
+	f32 one = 1;
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glClearNamedFramebufferfv(0, GL_COLOR, 0, BG_CLEAR_COLOUR.E);
 	glClearNamedFramebufferfv(0, GL_DEPTH, 0, &one);
@@ -516,7 +594,4 @@ viewer_frame_step(ViewerContext *ctx, f32 dt)
 	glBindTextureUnit(0, ctx->output_target.textures[0]);
 	glBindVertexArray(ctx->overlay_render_context.vao);
 	glDrawArrays(GL_TRIANGLES, 0, 6);
-
-	glfwSwapBuffers(ctx->window);
-	glfwPollEvents();
 }

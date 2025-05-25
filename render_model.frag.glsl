@@ -21,7 +21,7 @@ bool bounding_box_test(vec3 coord, float p)
 void main()
 {
 	float smp = length(texture(u_texture, texture_coordinate).xy);
-	float threshold_val = pow(10.0f, (u_threshold + 13) / 20.0f);
+	float threshold_val = pow(10.0f, u_threshold / 20.0f);
 	smp = clamp(smp, 0.0f, threshold_val);
 	smp = smp / threshold_val;
 	smp = pow(smp, u_gamma);

@@ -269,13 +269,6 @@ struct OS {
 };
 
 typedef struct {
-	u32 texture;
-	u32 width;
-	u32 height;
-	u32 depth;
-} Texture;
-
-typedef struct {
 	u32 shader;
 	u32 vao;
 	u32 vbo;
@@ -301,17 +294,20 @@ typedef struct {
 	RenderContext model_render_context;
 	RenderContext overlay_render_context;
 
+	RenderTarget multisample_target;
 	RenderTarget output_target;
 	RenderModel  unit_cube;
 
 	sv2 window_size;
 
+	b32 demo_mode;
 	f32 cycle_t;
 	f32 camera_angle;
+	f32 camera_fov;
 	f32 camera_radius;
 	v3  camera_position;
 
-	Texture view_texture;
+	f32 input_dt;
 
 	b32 should_exit;
 

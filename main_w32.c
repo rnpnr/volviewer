@@ -89,8 +89,14 @@ main(void)
 
 	init_viewer(ctx);
 
+	f64 last_time = 0;
 	while (!ctx->should_exit) {
-		clear_io_queue(&ctx->os, &input, ctx->arena);
-		viewer_frame_step(ctx, &input);
+		clear_io_queue(&ctx->os, ctx->arena);
+		f64 now = glfwGetTime();
+		viewer_frame_step(ctx, ctx->demo_mode * (now - last_time) + ctx->input_dt);
+		last_time = now;
+		ctx->input_dt = 0;
+		glfwSwapBuffers(ctx->window);
+		glfwPollEvents();
 	}
 }

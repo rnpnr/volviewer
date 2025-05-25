@@ -66,7 +66,10 @@ main(void)
 		if (fds[0].revents & POLLIN)
 			dispatch_file_watch_events(&ctx->os, ctx->arena);
 		f64 now = glfwGetTime();
-		viewer_frame_step(ctx, now - last_time);
+		viewer_frame_step(ctx, ctx->demo_mode * (now - last_time) + ctx->input_dt);
 		last_time = now;
+		ctx->input_dt = 0;
+		glfwSwapBuffers(ctx->window);
+		glfwPollEvents();
 	}
 }
