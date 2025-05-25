@@ -86,7 +86,7 @@ W32(sptr)   CreateFileA(c8 *, u32, u32, void *, u32, u32, void *);
 W32(sptr)   CreateFileMappingA(sptr, void *, u32, u32, u32, c8 *);
 W32(sptr)   CreateIoCompletionPort(sptr, sptr, uptr, u32);
 W32(sptr)   CreateThread(sptr, uz, sptr, sptr, u32, u32 *);
-W32(void)   ExitProcess(i32);
+W32(void)   ExitProcess(s32);
 W32(b32)    GetFileInformationByHandle(sptr, void *);
 W32(s32)    GetLastError(void);
 W32(b32)    GetQueuedCompletionStatus(sptr, u32 *, uptr *, w32_overlapped **, u32);
@@ -224,7 +224,8 @@ function OS_ADD_FILE_WATCH_FN(os_add_file_watch)
 		event->context = (sptr)dir;
 		CreateIoCompletionPort(dir->handle, ctx->io_completion_handle, (uptr)event, 0);
 
-		dir->buffer = sub_arena(a, 4096 + sizeof(w32_overlapped), 64);
+		dir->buffer.beg = arena_alloc(a, 4096 + sizeof(w32_overlapped), 64, 1);
+		dir->buffer.end = dir->buffer.beg + 4096 + sizeof(w32_overlapped);
 		w32_overlapped *overlapped = (w32_overlapped *)(dir->buffer.beg + 4096);
 		zero_struct(overlapped);
 

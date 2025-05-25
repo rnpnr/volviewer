@@ -11,7 +11,7 @@
 function void
 dispatch_file_watch(OS *os, FileWatchDirectory *fw_dir, u8 *buf, Arena arena)
 {
-	i64 offset = 0;
+	s64 offset = 0;
 	Arena start_arena = arena;
 	w32_file_notify_info *fni = (w32_file_notify_info *)buf;
 	do {
@@ -20,10 +20,10 @@ dispatch_file_watch(OS *os, FileWatchDirectory *fw_dir, u8 *buf, Arena arena)
 		Stream path = {.data = arena_commit(&arena, KB(1)), .cap = KB(1)};
 
 		if (fni->action != FILE_ACTION_MODIFIED) {
-			stream_append_s8(&path, s8("unknown file watch event: "));
+			stream_append_str8(&path, str8("unknown file watch event: "));
 			stream_append_u64(&path, fni->action);
 			stream_append_byte(&path, '\n');
-			os->write_file(os->error_handle, stream_to_s8(&path));
+			os_write_file(os->error_handle, stream_to_str8(&path));
 			stream_reset(&path, 0);
 		}
 
@@ -55,7 +55,7 @@ clear_io_queue(OS *os, Arena arena)
 {
 	w32_context *ctx = (w32_context *)os->context;
 
-	iptr handle = ctx->io_completion_handle;
+	sptr handle = ctx->io_completion_handle;
 	w32_overlapped *overlapped;
 	u32  bytes_read;
 	uptr user_data;
@@ -74,7 +74,7 @@ clear_io_queue(OS *os, Arena arena)
 	}
 }
 
-extern i32
+extern s32
 main(void)
 {
 	Arena memory       = os_alloc_arena(GB(1));

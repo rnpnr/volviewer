@@ -195,7 +195,8 @@ enum {
 };
 
 W32(b32) CreateProcessA(u8 *, u8 *, sptr, sptr, b32, u32, sptr, u8 *, sptr, sptr);
-W32(b32) GetExitCodeProcess(iptr handle, u32 *);
+W32(b32) DeleteFileA(c8 *);
+W32(b32) GetExitCodeProcess(sptr handle, u32 *);
 W32(b32) GetFileTime(sptr, sptr, sptr, sptr);
 W32(b32) MoveFileExA(c8 *, c8 *, u32);
 W32(u32) WaitForSingleObject(sptr, u32);
@@ -218,10 +219,10 @@ function u64
 os_get_filetime(char *file)
 {
 	u64 result = (u64)-1;
-	iptr h = CreateFileA(file, 0, 0, 0, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, 0);
+	sptr h = CreateFileA(file, 0, 0, 0, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, 0);
 	if (h != INVALID_FILE) {
 		struct { u32 low, high; } w32_filetime;
-		GetFileTime(h, 0, 0, (iptr)&w32_filetime);
+		GetFileTime(h, 0, 0, (sptr)&w32_filetime);
 		result = (u64)w32_filetime.high << 32ULL | w32_filetime.low;
 		CloseHandle(h);
 	}
@@ -248,7 +249,7 @@ os_spawn_process(CommandList *cmd, Stream sb)
 	};
 
 	struct {
-		iptr phandle, thandle;
+		sptr phandle, thandle;
 		u32  pid, tid;
 	} w32_process_info = {0};
 
@@ -257,9 +258,9 @@ os_spawn_process(CommandList *cmd, Stream sb)
 	if (sb.widx < sb.cap) sb.data[sb.widx]     = 0;
 	else                  sb.data[sb.widx - 1] = 0;
 
-	iptr result = INVALID_FILE;
-	if (CreateProcessA(0, sb.data, 0, 0, 1, 0, 0, 0, (iptr)&w32_startup_info,
-	                   (iptr)&w32_process_info))
+	sptr result = INVALID_FILE;
+	if (CreateProcessA(0, sb.data, 0, 0, 1, 0, 0, 0, (sptr)&w32_startup_info,
+	                   (sptr)&w32_process_info))
 	{
 		CloseHandle(w32_process_info.thandle);
 		result = w32_process_info.phandle;
@@ -268,7 +269,7 @@ os_spawn_process(CommandList *cmd, Stream sb)
 }
 
 function b32
-os_wait_close_process(iptr handle)
+os_wait_close_process(sptr handle)
 {
 	b32 result = WaitForSingleObject(handle, -1) != 0xFFFFFFFFUL;
 	if (result) {
@@ -319,6 +320,7 @@ check_rebuild_self(Arena arena, s32 argc, char *argv[])
 
 		CommandList c = {0};
 		cmd_append(&arena, &c, COMPILER, "-march=native", "-O3", COMMON_FLAGS);
+		if (is_w32 && is_clang) cmd_append(&arena, &c, "-fms-extensions");
 		cmd_append(&arena, &c, "-Wno-unused-function", __FILE__, "-o", binary, (void *)0);
 		if (!run_synchronous(arena, &c)) {
 			os_rename_file(old_name, binary);
@@ -439,7 +441,7 @@ main(s32 argc, char *argv[])
 
 	CommandList c = cmd_base(&arena, &options);
 	if (is_unix) cmd_append(&arena, &c, "-D_GLFW_X11");
-	cmd_append(&arena, &c,  "-I external/include", "-I external/glfw/include");
+	cmd_append(&arena, &c, "-Iexternal/glfw/include");
 
 	cmd_append(&arena, &c, OS_MAIN, "external/rglfw.c", "-o", "volviewer");
 	cmd_append_ldflags(&arena, &c, options.debug);
