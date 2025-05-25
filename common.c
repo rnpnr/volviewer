@@ -76,10 +76,10 @@ get_frame_time_step(ViewerContext *ctx)
 		result = 1.0f / (OUTPUT_FRAME_RATE * OUTPUT_TIME_SECONDS * CYCLE_T_UPDATE_SPEED);
 	} else {
 		f64 now = glfwGetTime();
-		result = ctx->demo_mode * (now - ctx->last_time) + ctx->input_dt;
+		result = ctx->demo_mode * (now - ctx->last_time);
 		ctx->last_time = now;
-		ctx->input_dt  = 0;
 	}
+	ctx->do_update |= result != 0;
 	return result;
 }
 
@@ -280,6 +280,7 @@ scroll_callback(GLFWwindow *window, f64 x, f64 y)
 {
 	ViewerContext *ctx  = glfwGetWindowUserPointer(window);
 	ctx->camera_fov += y;
+	ctx->do_update   = 1;
 }
 
 function void
@@ -292,18 +293,21 @@ key_callback(GLFWwindow *window, s32 key, s32 scancode, s32 action, s32 modifier
 	if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
 		ctx->demo_mode = !ctx->demo_mode;
 
-	if (key == GLFW_KEY_RIGHT && (action == GLFW_PRESS || action == GLFW_REPEAT))
-		ctx->input_dt += 4.0f / (OUTPUT_TIME_SECONDS * OUTPUT_FRAME_RATE);
-	if (key == GLFW_KEY_LEFT && (action == GLFW_PRESS || action == GLFW_REPEAT))
-		ctx->input_dt -= 4.0f / (OUTPUT_TIME_SECONDS * OUTPUT_FRAME_RATE);
-
 	if (key == GLFW_KEY_F12 && action == GLFW_PRESS && ctx->output_frames_count == 0) {
 		ctx->output_frames_count = OUTPUT_TIME_SECONDS * OUTPUT_FRAME_RATE;
 		ctx->cycle_t = 0;
 	}
 
-	ctx->camera_angle += (key == GLFW_KEY_W && action != GLFW_RELEASE) * 5 * PI / 180.0f;
-	ctx->camera_angle -= (key == GLFW_KEY_S && action != GLFW_RELEASE) * 5 * PI / 180.0f;
+	if (key == GLFW_KEY_A && action != GLFW_RELEASE)
+		ctx->cycle_t += 4.0f / (OUTPUT_TIME_SECONDS * OUTPUT_FRAME_RATE);
+	if (key == GLFW_KEY_D && action != GLFW_RELEASE)
+		ctx->cycle_t -= 4.0f / (OUTPUT_TIME_SECONDS * OUTPUT_FRAME_RATE);
+	if (key == GLFW_KEY_W && action != GLFW_RELEASE)
+		ctx->camera_angle += 5 * PI / 180.0f;
+	if (key == GLFW_KEY_S && action != GLFW_RELEASE)
+		ctx->camera_angle -= 5 * PI / 180.0f;
+
+	ctx->do_update = 1;
 }
 
 function void
@@ -633,7 +637,7 @@ export_frame(Arena arena, u32 texture, str8 out_directory, u32 frame_index, u32 
 function void
 viewer_frame_step(ViewerContext *ctx, f32 dt)
 {
-	if (dt != 0) {
+	if (ctx->do_update) {
 		update_scene(ctx, dt);
 		if (ctx->output_frames_count) {
 			u32 total_frames = OUTPUT_FRAME_RATE * OUTPUT_TIME_SECONDS;
@@ -642,6 +646,7 @@ viewer_frame_step(ViewerContext *ctx, f32 dt)
 			export_frame(ctx->arena, ctx->output_target.textures[0], str8(OUTPUT_PATH),
 			             frame_index, RENDER_TARGET_SIZE);
 		}
+		ctx->do_update = 0;
 	}
 
 	////////////////

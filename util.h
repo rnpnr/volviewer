@@ -310,7 +310,7 @@ typedef struct {
 	u32 output_frames_count;
 
 	f32 last_time;
-	f32 input_dt;
+	b32 do_update;
 
 	b32 should_exit;
 
