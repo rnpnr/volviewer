@@ -36,7 +36,7 @@ void main()
 	//out_colour = vec4(1, 1, 1, smp);
 	//out_colour = vec4(smp * abs(normal), 1);
 
-	if (bounding_box_test(texture_coordinate, u_bb_fraction)) {
+	if (bounding_box_test(test_texture_coordinate, u_bb_fraction)) {
 		out_colour = u_bb_colour;
 	} else {
 		out_colour = vec4(smp, smp, smp, 1);

@@ -6,16 +6,17 @@
 #include <stdio.h>
 #include <stdarg.h>
 
-#define BG_CLEAR_COLOUR    (v4){{0.12, 0.1, 0.1, 1}}
-#define RENDER_TARGET_SIZE 1024, 1024
-
-#define CAMERA_ELEVATION_ANGLE 30.0f
+global v3 min_coord_mm = {.x = -18.5, .y = -9.6, .z = 5};
+global v3 max_coord_mm = {.x =  18.5, .y =  9.6, .z = 42};
 
 /* NOTE(rnp): for video output we will render a full rotation in this much time at the
  * the specified frame rate */
 #define OUTPUT_TIME_SECONDS     8.0f
 #define OUTPUT_FRAME_RATE      30.0f
-#define OUTPUT_BG_CLEAR_COLOUR (v4){{0.0, 0.0, 0.0, 1}}
+#define OUTPUT_BG_CLEAR_COLOUR (v4){{0.05, 0.05, 0.05, 1}}
+
+#define RENDER_TARGET_SIZE     1024, 1024
+#define CAMERA_ELEVATION_ANGLE 30.0f
 
 #define BOUNDING_BOX_COLOUR    0.78, 0.07, 0.20, 1
 #define BOUNDING_BOX_FRACTION  0.005f
@@ -29,6 +30,8 @@
 #define MODEL_RENDER_GAMMA_LOC         (6)
 #define MODEL_RENDER_BB_COLOUR_LOC     (7)
 #define MODEL_RENDER_BB_FRACTION_LOC   (8)
+
+#define BG_CLEAR_COLOUR    (v4){{0.12, 0.1, 0.1, 1}}
 
 struct gl_debug_ctx {
 	Stream  stream;
@@ -233,7 +236,7 @@ function void
 scroll_callback(GLFWwindow *window, f64 x, f64 y)
 {
 	ViewerContext *ctx  = glfwGetWindowUserPointer(window);
-	ctx->camera_radius += 0.2 * y;
+	ctx->camera_radius += y;
 }
 
 function void
@@ -258,7 +261,7 @@ function void
 init_viewer(ViewerContext *ctx)
 {
 	ctx->window_size   = (sv2){.w = 640, .h = 640};
-	ctx->camera_radius = 5;
+	ctx->camera_radius = 80;
 	ctx->camera_angle  = -CAMERA_ELEVATION_ANGLE * PI / 180.0f;
 
 	if (!glfwInit()) os_fatal(str8("failed to start glfw\n"));
@@ -313,6 +316,7 @@ init_viewer(ViewerContext *ctx)
 	"\n"
 	"layout(location = 0) out vec3 f_normal;\n"
 	"layout(location = 1) out vec3 f_texture_coordinate;\n"
+	"layout(location = 2) out vec3 f_orig_texture_coordinate;\n"
 	"\n"
 	"layout(location = " str(MODEL_RENDER_MODEL_MATRIX_LOC) ") uniform mat4 u_model;\n"
 	"layout(location = " str(MODEL_RENDER_VIEW_MATRIX_LOC)  ") uniform mat4 u_view;\n"
@@ -321,16 +325,20 @@ init_viewer(ViewerContext *ctx)
 	"\n"
 	"void main()\n"
 	"{\n"
-	"\tf_texture_coordinate = (v_position + 1) / 2;\n"
+	"\tvec3 pos = v_position;\n"
+	"\tf_orig_texture_coordinate = (v_position + 1) / 2;\n"
+	"\tif (v_position.y == -1) pos.x = clamp(v_position.x, -0.42, 0.42);\n"
+	"\tf_texture_coordinate = (pos + 1) / 2;\n"
 	//"\tf_normal    = normalize(mat3(u_model) * v_normal);\n"
 	"\tf_normal    = v_normal;\n"
-	"\tgl_Position = u_projection * u_view * u_model * vec4(v_position, 1);\n"
+	"\tgl_Position = u_projection * u_view * u_model * vec4(pos, 1);\n"
 	"}\n");
 
 	model_rc->fragment_header = str8(""
 	"#version 460 core\n\n"
 	"layout(location = 0) in  vec3 normal;\n"
 	"layout(location = 1) in  vec3 texture_coordinate;\n\n"
+	"layout(location = 2) in  vec3 test_texture_coordinate;\n\n"
 	"layout(location = 0) out vec4 out_colour;\n\n"
 	"layout(location = " str(MODEL_RENDER_DYNAMIC_RANGE_LOC) ") uniform float u_db_cutoff = 60;\n"
 	"layout(location = " str(MODEL_RENDER_THRESHOLD_LOC)     ") uniform float u_threshold = 40;\n"
@@ -452,7 +460,7 @@ viewer_frame_step(ViewerContext *ctx, f32 dt)
 	/* TODO(rnp): this needs to be set on hot reload */
 	/* TODO(rnp): think about a reasonable region (probably min_coord -> max_coord + 10%) */
 	f32 n = 1;
-	f32 f = 20;
+	f32 f = 200;
 	f32 a = -f / (f - n);
 	f32 b = -f * n / (f - n);
 	m4 projection;
@@ -467,12 +475,12 @@ viewer_frame_step(ViewerContext *ctx, f32 dt)
 	set_camera(ctx->model_render_context.shader, MODEL_RENDER_VIEW_MATRIX_LOC,
 	           camera, v3_normalize(v3_sub(camera, (v3){0})), (v3){{0, 1, 0}});
 
-	f32 scale = 2;
+	v3 scale = v3_sub(max_coord_mm, min_coord_mm);
 	m4 model_transform;
-	model_transform.c[0] = (v4){{scale, 0,     0,     0}};
-	model_transform.c[1] = (v4){{0,     scale, 0,     0}};
-	model_transform.c[2] = (v4){{0,     0,     scale, 0}};
-	model_transform.c[3] = (v4){{0,     0,     0,     1}};
+	model_transform.c[0] = (v4){{scale.x, 0,       0,       0}};
+	model_transform.c[1] = (v4){{0,       scale.z, 0,       0}};
+	model_transform.c[2] = (v4){{0,       0,       scale.y, 0}};
+	model_transform.c[3] = (v4){{0,       0,       0,       1}};
 	glProgramUniformMatrix4fv(ctx->model_render_context.shader, MODEL_RENDER_MODEL_MATRIX_LOC,
 	                          1, 0, model_transform.E);
 
