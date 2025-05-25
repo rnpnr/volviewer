@@ -105,3 +105,9 @@ function OS_ADD_FILE_WATCH_FN(os_add_file_watch)
 	fw->callback  = callback;
 	fw->hash      = str8_hash(path);
 }
+
+function void
+os_make_directory(char *name)
+{
+	mkdir(name, 0770);
+}

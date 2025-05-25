@@ -20,7 +20,8 @@ bool bounding_box_test(vec3 coord, float p)
 
 void main()
 {
-	float smp = length(texture(u_texture, texture_coordinate).xy);
+	vec3 tex_coord = u_swizzle? texture_coordinate.xzy : texture_coordinate;
+	float smp = length(texture(u_texture, tex_coord).xy);
 	float threshold_val = pow(10.0f, u_threshold / 20.0f);
 	smp = clamp(smp, 0.0f, threshold_val);
 	smp = smp / threshold_val;

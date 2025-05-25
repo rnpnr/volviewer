@@ -9,8 +9,10 @@
 /* NOTE(rnp): for video output we will render a full rotation in this much time at the
  * the specified frame rate */
 #define OUTPUT_TIME_SECONDS     8.0f
-#define OUTPUT_FRAME_RATE      30.0f
+#define OUTPUT_FRAME_RATE      60.0f
 #define OUTPUT_BG_CLEAR_COLOUR (v4){{0.05, 0.05, 0.05, 1}}
+
+#define OUTPUT_PATH "/tmp/out"
 
 #define RENDER_MSAA_SAMPLES    8
 #define RENDER_TARGET_SIZE     1920, 1080
@@ -39,8 +41,10 @@ typedef struct {
 global u32 single_volume_index = 0;
 global VolumeDisplayItem volumes[] = {
 	/* WALKING FORCES */
-	{"./data/test/frame_%02u.bin", 512, 1024, 64, {{-18.5, -9.6, 5}}, {{18.5, 9.6, 42}}, 0.58, 62, 3 * -18.5, 0, 1},
-	{"./data/test/frame_%02u.bin", 512, 1024, 64, {{-18.5, -9.6, 5}}, {{18.5, 9.6, 42}}, 0.58, 62, 3 *  18.5, 0, 1},
+	{"./data/test/frame_%02u.bin", 512, 1024, 64, {{-18.5, -9.6, 5}}, {{18.5, 9.6, 42}}, 0.58, 62, 0, 0, 1},
+	/* RCA */
+	{"./data/tpw.bin", 512, 64, 1024, {{-9.6, -9.6, 5}}, {{9.6, 9.6, 42}}, 0, 85, -5 *  18.5, 1, 0},
+	{"./data/vls.bin", 512, 64, 1024, {{-9.6, -9.6, 5}}, {{9.6, 9.6, 42}}, 0, 82,  5 *  18.5, 1, 0},
 };
 
 #define MODEL_RENDER_MODEL_MATRIX_LOC  (0)
@@ -53,13 +57,31 @@ global VolumeDisplayItem volumes[] = {
 #define MODEL_RENDER_GAMMA_LOC         (7)
 #define MODEL_RENDER_BB_COLOUR_LOC     (8)
 #define MODEL_RENDER_BB_FRACTION_LOC   (9)
+#define MODEL_RENDER_SWIZZLE_LOC       (10)
 
-#define BG_CLEAR_COLOUR    (v4){{0.12, 0.1, 0.1, 1}}
+#define CYCLE_T_UPDATE_SPEED 0.25f
+#define BG_CLEAR_COLOUR      (v4){{0.12, 0.1, 0.1, 1}}
 
 struct gl_debug_ctx {
 	Stream  stream;
 	OS     *os;
 };
+
+function f32
+get_frame_time_step(ViewerContext *ctx)
+{
+	f32 result = 0;
+	/* NOTE(rnp): if we are outputting frames do a constant time step */
+	if (ctx->output_frames_count > 0) {
+		result = 1.0f / (OUTPUT_FRAME_RATE * OUTPUT_TIME_SECONDS * CYCLE_T_UPDATE_SPEED);
+	} else {
+		f64 now = glfwGetTime();
+		result = ctx->demo_mode * (now - ctx->last_time) + ctx->input_dt;
+		ctx->last_time = now;
+		ctx->input_dt  = 0;
+	}
+	return result;
+}
 
 function void
 gl_debug_logger(u32 src, u32 type, u32 id, u32 lvl, s32 len, const char *msg, const void *userctx)
@@ -275,6 +297,11 @@ key_callback(GLFWwindow *window, s32 key, s32 scancode, s32 action, s32 modifier
 	if (key == GLFW_KEY_LEFT && (action == GLFW_PRESS || action == GLFW_REPEAT))
 		ctx->input_dt -= 4.0f / (OUTPUT_TIME_SECONDS * OUTPUT_FRAME_RATE);
 
+	if (key == GLFW_KEY_F12 && action == GLFW_PRESS && ctx->output_frames_count == 0) {
+		ctx->output_frames_count = OUTPUT_TIME_SECONDS * OUTPUT_FRAME_RATE;
+		ctx->cycle_t = 0;
+	}
+
 	ctx->camera_angle += (key == GLFW_KEY_W && action != GLFW_RELEASE) * 5 * PI / 180.0f;
 	ctx->camera_angle -= (key == GLFW_KEY_S && action != GLFW_RELEASE) * 5 * PI / 180.0f;
 }
@@ -295,8 +322,9 @@ init_viewer(ViewerContext *ctx)
 	ctx->camera_angle  = -CAMERA_ELEVATION_ANGLE * PI / 180.0f;
 	ctx->camera_fov    = 60.0f;
 
-	if (!glfwInit()) os_fatal(str8("failed to start glfw\n"));
+	os_make_directory(OUTPUT_PATH);
 
+	if (!glfwInit()) os_fatal(str8("failed to start glfw\n"));
 
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
@@ -393,7 +421,8 @@ init_viewer(ViewerContext *ctx)
 	"layout(location = " str(MODEL_RENDER_GAMMA_LOC)         ") uniform float u_gamma     = 1;\n"
 	"layout(location = " str(MODEL_RENDER_LOG_SCALE_LOC)     ") uniform bool  u_log_scale;\n"
 	"layout(location = " str(MODEL_RENDER_BB_COLOUR_LOC)     ") uniform vec4  u_bb_colour   = vec4(" str(BOUNDING_BOX_COLOUR) ");\n"
-	"layout(location = " str(MODEL_RENDER_BB_FRACTION_LOC)   ") uniform float u_bb_fraction = " str(BOUNDING_BOX_FRACTION) ";\n\n"
+	"layout(location = " str(MODEL_RENDER_BB_FRACTION_LOC)   ") uniform float u_bb_fraction = " str(BOUNDING_BOX_FRACTION) ";\n"
+	"layout(location = " str(MODEL_RENDER_SWIZZLE_LOC)       ") uniform bool u_swizzle;\n\n"
 	"layout(binding = 0) uniform sampler3D u_texture;\n"
 	"\n#line 1\n");
 
@@ -516,6 +545,7 @@ draw_volume_item(ViewerContext *ctx, VolumeDisplayItem *v, f32 rotation)
 
 	glProgramUniform1f(program, MODEL_RENDER_CLIP_FRACTION_LOC, 1 - v->clip_fraction);
 	glProgramUniform1f(program, MODEL_RENDER_THRESHOLD_LOC,     v->threshold);
+	glProgramUniform1ui(program, MODEL_RENDER_SWIZZLE_LOC,      v->swizzle);
 
 	glBindTextureUnit(0, v->texture);
 	glBindVertexArray(ctx->unit_cube.vao);
@@ -526,7 +556,7 @@ draw_volume_item(ViewerContext *ctx, VolumeDisplayItem *v, f32 rotation)
 function void
 update_scene(ViewerContext *ctx, f32 dt)
 {
-	ctx->cycle_t += 0.25 * dt;
+	ctx->cycle_t += CYCLE_T_UPDATE_SPEED * dt;
 	if (ctx->cycle_t > 1) ctx->cycle_t -= 1;
 
 	f32 angle = ctx->cycle_t * 2 * PI;
@@ -579,9 +609,40 @@ update_scene(ViewerContext *ctx, f32 dt)
 }
 
 function void
+export_frame(Arena arena, u32 texture, str8 out_directory, u32 frame_index, u32 width, u32 height)
+{
+	Stream spath = arena_stream(arena);
+	stream_append_str8(&spath, out_directory);
+	if (spath.widx > 0 && spath.data[spath.widx - 1] != OS_PATH_SEPARATOR_CHAR)
+		stream_append_byte(&spath, OS_PATH_SEPARATOR_CHAR);
+	stream_append_str8(&spath, str8("frame_"));
+	stream_append_u64_width(&spath, frame_index, 4);
+	stream_append_str8(&spath, str8(".bin"));
+	str8 path = arena_stream_commit_zero(&arena, &spath);
+
+	sz padding   = -(uintptr_t)arena.beg & (64 - 1);
+	sz available = arena.end - arena.beg - padding;
+	sz needed    = width * height * sizeof(u32);
+	if (available > needed) {
+		glGetTextureImage(texture, 0, GL_RGBA, GL_UNSIGNED_INT_8_8_8_8, needed, arena.beg);
+		str8 raw = {.len = needed, .data = arena.beg};
+		os_write_new_file((c8 *)path.data, raw);
+	}
+}
+
+function void
 viewer_frame_step(ViewerContext *ctx, f32 dt)
 {
-	if (dt != 0) update_scene(ctx, dt);
+	if (dt != 0) {
+		update_scene(ctx, dt);
+		if (ctx->output_frames_count) {
+			u32 total_frames = OUTPUT_FRAME_RATE * OUTPUT_TIME_SECONDS;
+			u32 frame_index  = total_frames - ctx->output_frames_count--;
+			printf("Saving Frame: [%u/%u]\n", frame_index, total_frames);
+			export_frame(ctx->arena, ctx->output_target.textures[0], str8(OUTPUT_PATH),
+			             frame_index, RENDER_TARGET_SIZE);
+		}
+	}
 
 	////////////////
 	// UI Overlay

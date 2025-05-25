@@ -307,6 +307,9 @@ typedef struct {
 	f32 camera_radius;
 	v3  camera_position;
 
+	u32 output_frames_count;
+
+	f32 last_time;
 	f32 input_dt;
 
 	b32 should_exit;

@@ -134,12 +134,6 @@ os_remove_file(char *name)
 	return result;
 }
 
-function void
-os_make_directory(char *name)
-{
-	mkdir(name, 0770);
-}
-
 function u64
 os_get_filetime(char *file)
 {
@@ -200,18 +194,11 @@ enum {
 	MOVEFILE_REPLACE_EXISTING = 0x01,
 };
 
-W32(b32) CreateDirectoryA(c8 *, void *);
 W32(b32) CreateProcessA(u8 *, u8 *, sptr, sptr, b32, u32, sptr, u8 *, sptr, sptr);
 W32(b32) GetExitCodeProcess(iptr handle, u32 *);
 W32(b32) GetFileTime(sptr, sptr, sptr, sptr);
 W32(b32) MoveFileExA(c8 *, c8 *, u32);
 W32(u32) WaitForSingleObject(sptr, u32);
-
-function void
-os_make_directory(char *name)
-{
-	CreateDirectoryA(name, 0);
-}
 
 function b32
 os_rename_file(char *name, char *new)

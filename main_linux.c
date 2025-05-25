@@ -60,15 +60,11 @@ main(void)
 	fds[0].fd     = ctx->os.file_watch_context.handle;
 	fds[0].events = POLLIN;
 
-	f64 last_time = 0;
 	while (!ctx->should_exit) {
 		poll(fds, countof(fds), 0);
 		if (fds[0].revents & POLLIN)
 			dispatch_file_watch_events(&ctx->os, ctx->arena);
-		f64 now = glfwGetTime();
-		viewer_frame_step(ctx, ctx->demo_mode * (now - last_time) + ctx->input_dt);
-		last_time = now;
-		ctx->input_dt = 0;
+		viewer_frame_step(ctx, get_frame_time_step(ctx));
 		glfwSwapBuffers(ctx->window);
 		glfwPollEvents();
 	}

@@ -305,6 +305,21 @@ stream_append_u64(Stream *s, u64 n)
 }
 
 function void
+stream_append_u64_width(Stream *s, u64 n, u64 min_width)
+{
+	u8 tmp[64];
+	u8 *end = tmp + sizeof(tmp);
+	u8 *beg = end;
+	min_width = MIN(sizeof(tmp), min_width);
+
+	do { *--beg = '0' + (n % 10); } while (n /= 10);
+	while (end - beg > 0 && end - beg < min_width)
+		*--beg = '0';
+
+	stream_append(s, beg, end - beg);
+}
+
+function void
 stream_append_s64(Stream *s, s64 n)
 {
 	if (n < 0) {

@@ -81,6 +81,7 @@ typedef struct {
 
 #define W32(r) __declspec(dllimport) r __stdcall
 W32(b32)    CloseHandle(sptr);
+W32(b32)    CreateDirectoryA(c8 *, void *);
 W32(sptr)   CreateFileA(c8 *, u32, u32, void *, u32, u32, void *);
 W32(sptr)   CreateFileMappingA(sptr, void *, u32, u32, u32, c8 *);
 W32(sptr)   CreateIoCompletionPort(sptr, sptr, uptr, u32);
@@ -235,4 +236,10 @@ function OS_ADD_FILE_WATCH_FN(os_add_file_watch)
 	fw->user_data = user_data;
 	fw->callback  = callback;
 	fw->hash      = str8_hash(path);
+}
+
+function void
+os_make_directory(char *name)
+{
+	CreateDirectoryA(name, 0);
 }
