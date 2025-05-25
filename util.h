@@ -72,8 +72,8 @@
 #define static_assert _Static_assert
 
 /* NOTE: garbage to get the prepocessor to properly stringize the value of a macro */
-#define str_(x) #x
-#define str(x) str_(x)
+#define str_(...) #__VA_ARGS__
+#define str(...) str_(__VA_ARGS__)
 
 #define countof(a)       (sizeof(a) / sizeof(*a))
 #define ARRAY_COUNT(a)   (sizeof(a) / sizeof(*a))
@@ -269,6 +269,13 @@ struct OS {
 };
 
 typedef struct {
+	u32 texture;
+	u32 width;
+	u32 height;
+	u32 depth;
+} Texture;
+
+typedef struct {
 	u32 shader;
 	u32 vao;
 	u32 vbo;
@@ -303,6 +310,9 @@ typedef struct {
 	f32 camera_angle;
 	f32 camera_radius;
 	v3  camera_position;
+
+	Texture view_texture;
+
 	b32 should_exit;
 
 	void *window;

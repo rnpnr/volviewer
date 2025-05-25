@@ -3,6 +3,9 @@
 #include "glad/gl.h"
 #include "GLFW/glfw3.h"
 
+#include <stdio.h>
+#include <stdarg.h>
+
 #define BG_CLEAR_COLOUR    (v4){{0.12, 0.1, 0.1, 1}}
 #define RENDER_TARGET_SIZE 1024, 1024
 
@@ -12,7 +15,10 @@
  * the specified frame rate */
 #define OUTPUT_TIME_SECONDS     8.0f
 #define OUTPUT_FRAME_RATE      30.0f
-#define OUTPUT_BG_CLEAR_COLOUR (v4){{0.0, 0.2, 0.0, 1}}
+#define OUTPUT_BG_CLEAR_COLOUR (v4){{0.0, 0.0, 0.0, 1}}
+
+#define BOUNDING_BOX_COLOUR    0.78, 0.07, 0.20, 1
+#define BOUNDING_BOX_FRACTION  0.005f
 
 #define MODEL_RENDER_MODEL_MATRIX_LOC  (0)
 #define MODEL_RENDER_VIEW_MATRIX_LOC   (1)
@@ -21,14 +27,8 @@
 #define MODEL_RENDER_DYNAMIC_RANGE_LOC (4)
 #define MODEL_RENDER_THRESHOLD_LOC     (5)
 #define MODEL_RENDER_GAMMA_LOC         (6)
-
-typedef struct {
-	v3  normal;
-	v3  position;
-	v3  colour;
-	v3  texture_coordinate;
-	u32 flags;
-} Vertex;
+#define MODEL_RENDER_BB_COLOUR_LOC     (7)
+#define MODEL_RENDER_BB_FRACTION_LOC   (8)
 
 struct gl_debug_ctx {
 	Stream  stream;
@@ -54,6 +54,21 @@ gl_debug_logger(u32 src, u32 type, u32 id, u32 lvl, s32 len, const char *msg, co
 	stream_append_byte(e, '\n');
 	os_write_file(ctx->os->error_handle, stream_to_str8(e));
 	stream_reset(e, 0);
+}
+
+function void
+stream_printf(Stream *s, const char *format, ...)
+{
+	va_list ap;
+
+	va_start(ap, format);
+	s32 length = vsnprintf(0, 0, format, ap);
+	s->errors |= (s->cap - s->widx) < (length + 1);
+	if (!s->errors) {
+		vsnprintf((char *)(s->data + s->widx), s->cap - s->widx, format, ap);
+		s->widx += length;
+	}
+	va_end(ap);
 }
 
 function u32
@@ -148,6 +163,33 @@ function FILE_WATCH_CALLBACK_FN(reload_shader)
 	return 1;
 }
 
+function Texture
+load_complex_texture(Arena arena, c8 *file_path, b32 multi_file, u32 width, u32 height, u32 depth)
+{
+	Texture result = {0};
+	glCreateTextures(GL_TEXTURE_3D, 1, &result.texture);
+	glTextureStorage3D(result.texture, 1, GL_RG32F, width, height, depth);
+	glTextureParameteri(result.texture, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT);
+	glTextureParameteri(result.texture, GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT);
+
+	if (multi_file) {
+		/* NOTE(rnp): assumes single plane */
+		for (u32 i = 0; i < depth; i++) {
+			Stream spath = arena_stream(arena);
+			stream_printf(&spath, file_path, i);
+			str8 path = arena_stream_commit_zero(&arena, &spath);
+			str8 raw  = os_read_whole_file(&arena, (char *)path.data);
+			glTextureSubImage3D(result.texture, 0, 0, 0, i, width, height, 1, GL_RG,
+			                    GL_FLOAT, raw.data);
+		}
+	} else {
+		str8 raw = os_read_whole_file(&arena, file_path);
+		glTextureSubImage3D(result.texture, 0, 0, 0, 0, width, height, depth, GL_RG,
+		                    GL_FLOAT, raw.data);
+	}
+	return result;
+}
+
 function RenderModel
 load_render_model(Arena arena, c8 *positions_file_name, c8 *indices_file_name, c8 *normals_file_name)
 {
@@ -217,7 +259,7 @@ init_viewer(ViewerContext *ctx)
 {
 	ctx->window_size   = (sv2){.w = 640, .h = 640};
 	ctx->camera_radius = 5;
-	ctx->camera_angle  = CAMERA_ELEVATION_ANGLE * PI / 180.0f;
+	ctx->camera_angle  = -CAMERA_ELEVATION_ANGLE * PI / 180.0f;
 
 	if (!glfwInit()) os_fatal(str8("failed to start glfw\n"));
 
@@ -246,6 +288,8 @@ init_viewer(ViewerContext *ctx)
 #endif
 
 	glEnable(GL_DEPTH_TEST);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 	RenderContext *rc = &ctx->model_render_context;
 
@@ -268,6 +312,7 @@ init_viewer(ViewerContext *ctx)
 	"layout(location = 1) in vec3 v_normal;\n"
 	"\n"
 	"layout(location = 0) out vec3 f_normal;\n"
+	"layout(location = 1) out vec3 f_texture_coordinate;\n"
 	"\n"
 	"layout(location = " str(MODEL_RENDER_MODEL_MATRIX_LOC) ") uniform mat4 u_model;\n"
 	"layout(location = " str(MODEL_RENDER_VIEW_MATRIX_LOC)  ") uniform mat4 u_view;\n"
@@ -276,6 +321,7 @@ init_viewer(ViewerContext *ctx)
 	"\n"
 	"void main()\n"
 	"{\n"
+	"\tf_texture_coordinate = (v_position + 1) / 2;\n"
 	//"\tf_normal    = normalize(mat3(u_model) * v_normal);\n"
 	"\tf_normal    = v_normal;\n"
 	"\tgl_Position = u_projection * u_view * u_model * vec4(v_position, 1);\n"
@@ -283,29 +329,21 @@ init_viewer(ViewerContext *ctx)
 
 	model_rc->fragment_header = str8(""
 	"#version 460 core\n\n"
-	"layout(location = 0) in  vec3 normal;\n\n"
+	"layout(location = 0) in  vec3 normal;\n"
+	"layout(location = 1) in  vec3 texture_coordinate;\n\n"
 	"layout(location = 0) out vec4 out_colour;\n\n"
 	"layout(location = " str(MODEL_RENDER_DYNAMIC_RANGE_LOC) ") uniform float u_db_cutoff = 60;\n"
 	"layout(location = " str(MODEL_RENDER_THRESHOLD_LOC)     ") uniform float u_threshold = 40;\n"
 	"layout(location = " str(MODEL_RENDER_GAMMA_LOC)         ") uniform float u_gamma     = 1;\n"
 	"layout(location = " str(MODEL_RENDER_LOG_SCALE_LOC)     ") uniform bool  u_log_scale;\n"
+	"layout(location = " str(MODEL_RENDER_BB_COLOUR_LOC)     ") uniform vec4  u_bb_colour   = vec4(" str(BOUNDING_BOX_COLOUR) ");\n"
+	"layout(location = " str(MODEL_RENDER_BB_FRACTION_LOC)   ") uniform float u_bb_fraction = " str(BOUNDING_BOX_FRACTION) ";\n\n"
+	"layout(binding = 0) uniform sampler3D u_texture;\n"
 	"\n#line 1\n");
 
 	str8 render_model = str8("render_model.frag.glsl");
 	reload_shader(&ctx->os, render_model, (sptr)model_rc, ctx->arena);
 	os_add_file_watch(&ctx->os, &ctx->arena, render_model, reload_shader, (sptr)model_rc);
-
-	/* TODO(rnp): think about a reasonable region (probably min_coord -> max_coord + 10%) */
-	f32 n = 1;
-	f32 f = 20;
-	f32 a = -f / (f - n);
-	f32 b = -f * n / (f - n);
-	m4 projection;
-	projection.c[0] = (v4){{1, 0, 0,  0}};
-	projection.c[1] = (v4){{0, 1, 0,  0}};
-	projection.c[2] = (v4){{0, 0, a, -1}};
-	projection.c[3] = (v4){{0, 0, b,  0}};
-	glProgramUniformMatrix4fv(rc->shader, MODEL_RENDER_PROJ_MATRIX_LOC, 1, 0, projection.E);
 
 	rc = &ctx->overlay_render_context;
 	ShaderReloadContext *overlay_rc = push_struct(&ctx->arena, ShaderReloadContext);
@@ -326,7 +364,7 @@ init_viewer(ViewerContext *ctx)
 	"\n"
 	"void main()\n"
 	"{\n"
-	"\tf_texture_coordinate = 1 - v_texture_coordinate;\n"
+	"\tf_texture_coordinate = v_texture_coordinate;\n"
 	"\tf_colour             = v_colour;\n"
 	"\tf_flags              = v_flags;\n"
 	"\tgl_Position = vec4(v_position, 0, 1);\n"
@@ -365,6 +403,9 @@ init_viewer(ViewerContext *ctx)
 
 	ctx->unit_cube = load_render_model(ctx->arena, "unit_cube_positions.bin",
 	                                   "unit_cube_indices.bin", "unit_cube_normals.bin");
+
+	c8 *walking_cysts = "./data/test/frame_%02u.bin";
+	ctx->view_texture = load_complex_texture(ctx->arena, walking_cysts, 1, 512, 1024, 64);
 }
 
 function void
@@ -408,6 +449,20 @@ viewer_frame_step(ViewerContext *ctx, f32 dt)
 
 	glUseProgram(ctx->model_render_context.shader);
 
+	/* TODO(rnp): this needs to be set on hot reload */
+	/* TODO(rnp): think about a reasonable region (probably min_coord -> max_coord + 10%) */
+	f32 n = 1;
+	f32 f = 20;
+	f32 a = -f / (f - n);
+	f32 b = -f * n / (f - n);
+	m4 projection;
+	projection.c[0] = (v4){{1, 0, 0,  0}};
+	projection.c[1] = (v4){{0, 1, 0,  0}};
+	projection.c[2] = (v4){{0, 0, a, -1}};
+	projection.c[3] = (v4){{0, 0, b,  0}};
+	glProgramUniformMatrix4fv(ctx->model_render_context.shader, MODEL_RENDER_PROJ_MATRIX_LOC,
+	                          1, 0, projection.E);
+
 	v3 camera = ctx->camera_position;
 	set_camera(ctx->model_render_context.shader, MODEL_RENDER_VIEW_MATRIX_LOC,
 	           camera, v3_normalize(v3_sub(camera, (v3){0})), (v3){{0, 1, 0}});
@@ -421,6 +476,7 @@ viewer_frame_step(ViewerContext *ctx, f32 dt)
 	glProgramUniformMatrix4fv(ctx->model_render_context.shader, MODEL_RENDER_MODEL_MATRIX_LOC,
 	                          1, 0, model_transform.E);
 
+	glBindTextureUnit(0, ctx->view_texture.texture);
 	glBindVertexArray(ctx->unit_cube.vao);
 	glDrawElements(GL_TRIANGLES, ctx->unit_cube.elements, GL_UNSIGNED_SHORT,
 	               (void *)ctx->unit_cube.elements_offset);

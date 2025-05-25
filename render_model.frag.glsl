@@ -1,5 +1,4 @@
 /* See LICENSE for license details. */
-//layout(binding = 0) uniform sampler3D u_out_data_tex;
 
 /* input:  h [0,360] | s,v [0, 1] *
  * output: rgb [0,1]              */
@@ -10,19 +9,19 @@ vec3 hsv2rgb(vec3 hsv)
 	return hsv.z - hsv.z * hsv.y * k;
 }
 
+bool bounding_box_test(vec3 coord, float p)
+{
+	bool result = false;
+	bvec3 tests = bvec3(1 - step(vec3(p), coord) * step(coord, vec3(1 - p)));
+	if ((tests.x && tests.y) || (tests.x && tests.z) || (tests.y && tests.z))
+		result = true;
+	return result;
+}
+
 void main()
 {
-	#if 0
-	ivec3 out_data_dim = textureSize(u_out_data_tex, 0);
-
-	//vec2 min_max = texelFetch(u_out_data_tex, ivec3(0), textureQueryLevels(u_out_data_tex) - 1).xy;
-
-	/* TODO(rnp): select between x and y and specify slice */
-	ivec2 coord     = ivec2(fragment_texture_coordinate * vec2(out_data_dim.xz));
-	ivec3 smp_coord = ivec3(coord.x, out_data_dim.y / 2, coord.y);
-	float smp       = length(texelFetch(u_out_data_tex, smp_coord, 0).xy);
-
-	float threshold_val = pow(10.0f, u_threshold / 20.0f);
+	float smp = length(texture(u_texture, texture_coordinate).xy);
+	float threshold_val = pow(10.0f, (u_threshold + 13) / 20.0f);
 	smp = clamp(smp, 0.0f, threshold_val);
 	smp = smp / threshold_val;
 	smp = pow(smp, u_gamma);
@@ -33,8 +32,13 @@ void main()
 		smp = 1 - smp;
 	}
 
-	//v_out_colour = vec4(hsv2rgb(vec3(360 * smp, 0.8, 0.95)), 1);
-	#endif
+	//out_colour = vec4(abs(normal), 1);
+	//out_colour = vec4(1, 1, 1, smp);
+	//out_colour = vec4(smp * abs(normal), 1);
 
-	out_colour = vec4(abs(normal), 1);
+	if (bounding_box_test(texture_coordinate, u_bb_fraction)) {
+		out_colour = u_bb_colour;
+	} else {
+		out_colour = vec4(smp, smp, smp, 1);
+	}
 }

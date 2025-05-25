@@ -47,7 +47,7 @@ dispatch_file_watch_events(OS *os, Arena arena)
 extern s32
 main(void)
 {
-	Arena memory       = os_alloc_arena(MB(16));
+	Arena memory       = os_alloc_arena(GB(1));
 	ViewerContext *ctx = push_struct(&memory, ViewerContext);
 	ctx->arena         = memory;
 
