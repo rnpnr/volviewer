@@ -9,7 +9,7 @@
  * [ ]: cross compile/override baked compiler
  */
 
-#define COMMON_FLAGS "-std=c11", "-Wall", "-Iexternal/include"
+#define COMMON_FLAGS "-std=c11", "-Wall"
 
 #define OUTDIR    "out"
 #define OUTPUT(s) OUTDIR "/" s
@@ -428,7 +428,8 @@ function void
 cmd_append_ldflags(Arena *a, CommandList *cc, b32 shared)
 {
 	cmd_pdb(a, cc);
-	if (is_w32) cmd_append(a, cc, "-lgdi32", "-lwinmm");
+	if (is_w32)  cmd_append(a, cc, "-lopengl32", "-lgdi32", "-lwinmm");
+	if (is_unix) cmd_append(a, cc, "-lGL");
 }
 
 extern s32

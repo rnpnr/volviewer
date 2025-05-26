@@ -1,6 +1,5 @@
 /* See LICENSE for license details. */
-#define GLAD_GL_IMPLEMENTATION
-#include "glad/gl.h"
+#include <GL/gl.h>
 #include "GLFW/glfw3.h"
 
 #include <stdio.h>
@@ -61,6 +60,66 @@ global VolumeDisplayItem volumes[] = {
 
 #define CYCLE_T_UPDATE_SPEED 0.25f
 #define BG_CLEAR_COLOUR      (v4){{0.12, 0.1, 0.1, 1}}
+
+/* X(name, ret, params) */
+	//X(glBlendFunc,                           void,   (GLenum sfactor, GLenum dfactor))
+	//X(glDrawArrays,                          void,   (GLenum mode, GLint first, GLsizei count))
+	//X(glDrawElements,                        void,   (GLenum mode, GLsizei count, GLenum type, const GLvoid * indices))
+	//X(glEnable,                              void,   (GLenum cap))
+	//X(glViewport,                            void,   (GLint x, GLint y, GLsizei width, GLsizei height))
+#define OGLProcedureList \
+	X(glAttachShader,                        void,   (GLuint program, GLuint shader)) \
+	X(glBindFramebuffer,                     void,   (GLenum target, GLuint framebuffer)) \
+	X(glBindTextureUnit,                     void,   (GLuint unit, GLuint texture)) \
+	X(glBindVertexArray,                     void,   (GLuint array)) \
+	X(glBlitNamedFramebuffer,                void,   (GLuint sfb, GLuint dfb, GLint sx0, GLint sy0, GLint sx1, GLint sy1, GLint dx0, GLint dy0, GLint dx1, GLint dy1, GLbitfield mask, GLenum filter)) \
+	X(glClearNamedFramebufferfv,             void,   (GLuint framebuffer, GLenum buffer, GLint drawbuffer, const GLfloat *value)) \
+	X(glCompileShader,                       void,   (GLuint shader)) \
+	X(glCreateBuffers,                       void,   (GLsizei n, GLuint *buffers)) \
+	X(glCreateFramebuffers,                  void,   (GLsizei n, GLuint *ids)) \
+	X(glCreateProgram,                       GLuint, (void)) \
+	X(glCreateRenderbuffers,                 void,   (GLsizei n, GLuint *renderbuffers)) \
+	X(glCreateShader,                        GLuint, (GLenum shaderType)) \
+	X(glCreateTextures,                      void,   (GLenum target, GLsizei n, GLuint *textures)) \
+	X(glCreateVertexArrays,                  void,   (GLsizei n, GLuint *arrays)) \
+	X(glDebugMessageCallback,                void,   (void (*)(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar *message, const void *user), void *user)) \
+	X(glDeleteProgram,                       void,   (GLuint program)) \
+	X(glDeleteShader,                        void,   (GLuint shader)) \
+	X(glEnableVertexArrayAttrib,             void,   (GLuint vao, GLuint index)) \
+	X(glGenerateTextureMipmap,               void,   (GLuint texture)) \
+	X(glGetProgramInfoLog,                   void,   (GLuint program, GLsizei maxLength, GLsizei *length, GLchar *infoLog)) \
+	X(glGetProgramiv,                        void,   (GLuint program, GLenum pname, GLint *params)) \
+	X(glGetShaderInfoLog,                    void,   (GLuint shader, GLsizei maxLength, GLsizei *length, GLchar *infoLog)) \
+	X(glGetShaderiv,                         void,   (GLuint shader, GLenum pname, GLint *params)) \
+	X(glGetTextureImage,                     void,   (GLuint texture, GLint level, GLenum format, GLenum type, GLsizei bufSize, void *pixels)) \
+	X(glLinkProgram,                         void,   (GLuint program)) \
+	X(glNamedBufferData,                     void,   (GLuint buffer, GLsizeiptr size, const void *data, GLenum usage)) \
+	X(glNamedBufferStorage,                  void,   (GLuint buffer, GLsizeiptr size, const void *data, GLbitfield flags)) \
+	X(glNamedBufferSubData,                  void,   (GLuint buffer, GLintptr offset, GLsizei size, const void *data)) \
+	X(glNamedFramebufferRenderbuffer,        void,   (GLuint fb, GLenum attachment, GLenum renderbuffertarget, GLuint rb)) \
+	X(glNamedFramebufferTexture,             void,   (GLuint fb, GLenum attachment, GLuint texture, GLint level)) \
+	X(glNamedRenderbufferStorageMultisample, void,   (GLuint rb, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height)) \
+	X(glObjectLabel,                         void,   (GLenum identifier, GLuint name, GLsizei length, const char *label)) \
+	X(glProgramUniform1f,                    void,   (GLuint program, GLint location, GLfloat v0)) \
+	X(glProgramUniform1ui,                   void,   (GLuint program, GLint location, GLuint v0)) \
+	X(glProgramUniformMatrix4fv,             void,   (GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value)) \
+	X(glShaderSource,                        void,   (GLuint shader, GLsizei count, const GLchar **strings, const GLint *lengths)) \
+	X(glTextureParameteri,                   void,   (GLuint texture, GLenum pname, GLint param)) \
+	X(glTextureStorage2D,                    void,   (GLuint texture, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height)) \
+	X(glTextureStorage3D,                    void,   (GLuint texture, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height, GLsizei depth)) \
+	X(glTextureSubImage3D,                   void,   (GLuint texture, GLint level, GLint xoff, GLint yoff, GLint zoff, GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type, const void *pix)) \
+	X(glUseProgram,                          void,   (GLuint program)) \
+	X(glVertexArrayAttribBinding,            void,   (GLuint vao, GLuint attribindex, GLuint bindingindex)) \
+	X(glVertexArrayAttribFormat,             void,   (GLuint vao, GLuint attribindex, GLint size, GLenum type, GLboolean normalized, GLuint relativeoffset)) \
+	X(glVertexArrayElementBuffer,            void,   (GLuint vao, GLuint buffer)) \
+	X(glVertexArrayVertexBuffer,             void,   (GLuint vao, GLuint bindingindex, GLuint buffer, GLintptr offset, GLsizei stride))
+
+#define X(name, ret, params) typedef ret name##_fn params;
+OGLProcedureList
+#undef X
+#define X(name, ret, params) global name##_fn *name;
+OGLProcedureList
+#undef X
 
 struct gl_debug_ctx {
 	Stream  stream;
@@ -343,7 +402,10 @@ init_viewer(ViewerContext *ctx)
 	glfwSetScrollCallback(ctx->window, scroll_callback);
 	glfwSetFramebufferSizeCallback(ctx->window, fb_callback);
 
-	if (!gladLoadGL(glfwGetProcAddress)) os_fatal(str8("failed to load glad\n"));
+	#define X(name, ret, params) name = (name##_fn *)glfwGetProcAddress(#name);
+	OGLProcedureList
+	#undef X
+	//if (!gladLoadGL()) os_fatal(str8("failed to load glad\n"));
 
 	/* NOTE: set up OpenGL debug logging */
 	struct gl_debug_ctx *gl_debug_ctx = push_struct(&ctx->arena, typeof(*gl_debug_ctx));
