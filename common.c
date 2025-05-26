@@ -227,41 +227,50 @@ load_complex_texture(Arena arena, c8 *file_path, b32 multi_file, u32 width, u32 
 }
 
 function RenderModel
-load_render_model(Arena arena, c8 *positions_file_name, c8 *indices_file_name, c8 *normals_file_name)
+render_model_from_arrays(f32 *vertices, f32 *normals, u16 *indices, u32 index_count)
 {
 	RenderModel result = {0};
 
-	str8 positions = os_read_whole_file(&arena, positions_file_name);
-	str8 normals   = os_read_whole_file(&arena, normals_file_name);
-	str8 indices   = os_read_whole_file(&arena, indices_file_name);
+	s32 buffer_size    = index_count * (6 * sizeof(f32) + sizeof(u16));
+	s32 indices_offset = index_count * (6 * sizeof(f32));
+	s32 vert_size      = index_count * 3 * sizeof(f32);
+	s32 ind_size       = index_count * sizeof(u16);
 
-	result.elements = indices.len / sizeof(u16);
-
-	s32 buffer_size = positions.len + indices.len + normals.len;
-
-	s32 el_offset = positions.len + normals.len;
-	result.elements_offset = el_offset;
+	result.elements        = index_count;
+	result.elements_offset = indices_offset;
 
 	glCreateBuffers(1, &result.buffer);
 	glNamedBufferStorage(result.buffer, buffer_size, 0, GL_DYNAMIC_STORAGE_BIT);
-	glNamedBufferSubData(result.buffer, 0,             positions.len, positions.data);
-	glNamedBufferSubData(result.buffer, positions.len, normals.len,   normals.data);
-	glNamedBufferSubData(result.buffer, el_offset,     indices.len,   indices.data);
+	glNamedBufferSubData(result.buffer, 0,              vert_size, vertices);
+	glNamedBufferSubData(result.buffer, vert_size,      vert_size, normals);
+	glNamedBufferSubData(result.buffer, indices_offset, ind_size,  indices);
 
 	glCreateVertexArrays(1, &result.vao);
-	glVertexArrayVertexBuffer(result.vao, 0, result.buffer, 0,             3 * sizeof(f32));
-	glVertexArrayVertexBuffer(result.vao, 1, result.buffer, positions.len, 3 * sizeof(f32));
+	glVertexArrayVertexBuffer(result.vao, 0, result.buffer, 0,         3 * sizeof(f32));
+	glVertexArrayVertexBuffer(result.vao, 1, result.buffer, vert_size, 3 * sizeof(f32));
 	glVertexArrayElementBuffer(result.vao, result.buffer);
 
 	glEnableVertexArrayAttrib(result.vao, 0);
 	glEnableVertexArrayAttrib(result.vao, 1);
 
 	glVertexArrayAttribFormat(result.vao, 0, 3, GL_FLOAT, 0, 0);
-	glVertexArrayAttribFormat(result.vao, 1, 3, GL_FLOAT, 0, positions.len);
+	glVertexArrayAttribFormat(result.vao, 1, 3, GL_FLOAT, 0, vert_size);
 
 	glVertexArrayAttribBinding(result.vao, 0, 0);
 	glVertexArrayAttribBinding(result.vao, 1, 0);
 
+	return result;
+}
+
+function RenderModel
+load_render_model(Arena arena, c8 *positions_file_name, c8 *indices_file_name, c8 *normals_file_name)
+{
+	str8 positions = os_read_whole_file(&arena, positions_file_name);
+	str8 normals   = os_read_whole_file(&arena, normals_file_name);
+	str8 indices   = os_read_whole_file(&arena, indices_file_name);
+
+	RenderModel result = render_model_from_arrays((f32 *)positions.data, (f32 *)normals.data,
+	                                              (u16 *)indices.data, indices.len / sizeof(u16));
 	return result;
 }
 
@@ -485,8 +494,75 @@ init_viewer(ViewerContext *ctx)
 	reload_shader(&ctx->os, render_overlay, (sptr)overlay_rc, ctx->arena);
 	os_add_file_watch(&ctx->os, &ctx->arena, render_overlay, reload_shader, (sptr)overlay_rc);
 
-	ctx->unit_cube = load_render_model(ctx->arena, "unit_cube_positions.bin",
-	                                   "unit_cube_indices.bin", "unit_cube_normals.bin");
+	f32 unit_cube_vertices[] = {
+		 1.0f,  1.0f, -1.0f,
+		 1.0f,  1.0f, -1.0f,
+		 1.0f,  1.0f, -1.0f,
+		 1.0f, -1.0f, -1.0f,
+		 1.0f, -1.0f, -1.0f,
+		 1.0f, -1.0f, -1.0f,
+		 1.0f,  1.0f,  1.0f,
+		 1.0f,  1.0f,  1.0f,
+		 1.0f,  1.0f,  1.0f,
+		 1.0f, -1.0f,  1.0f,
+		 1.0f, -1.0f,  1.0f,
+		 1.0f, -1.0f,  1.0f,
+		-1.0f,  1.0f, -1.0f,
+		-1.0f,  1.0f, -1.0f,
+		-1.0f,  1.0f, -1.0f,
+		-1.0f, -1.0f, -1.0f,
+		-1.0f, -1.0f, -1.0f,
+		-1.0f, -1.0f, -1.0f,
+		-1.0f,  1.0f,  1.0f,
+		-1.0f,  1.0f,  1.0f,
+		-1.0f,  1.0f,  1.0f,
+		-1.0f, -1.0f,  1.0f,
+		-1.0f, -1.0f,  1.0f,
+		-1.0f, -1.0f,  1.0f
+	};
+	f32 unit_cube_normals[] = {
+		 0.0f,  0.0f, -1.0f,
+		 0.0f,  1.0f,  0.0f,
+		 1.0f,  0.0f,  0.0f,
+		 0.0f,  0.0f, -1.0f,
+		 0.0f, -1.0f,  0.0f,
+		 1.0f,  0.0f,  0.0f,
+		 0.0f,  0.0f,  1.0f,
+		 0.0f,  1.0f,  0.0f,
+		 1.0f,  0.0f,  0.0f,
+		 0.0f,  0.0f,  1.0f,
+		 0.0f, -1.0f,  0.0f,
+		 1.0f,  0.0f,  0.0f,
+		 0.0f,  0.0f, -1.0f,
+		 0.0f,  1.0f,  0.0f,
+		-1.0f,  0.0f,  0.0f,
+		 0.0f,  0.0f, -1.0f,
+		 0.0f, -1.0f,  0.0f,
+		-1.0f,  0.0f,  0.0f,
+		 0.0f,  0.0f,  1.0f,
+		 0.0f,  1.0f,  0.0f,
+		-1.0f,  0.0f,  0.0f,
+		 0.0f,  0.0f,  1.0f,
+		 0.0f, -1.0f,  0.0f,
+		-1.0f,  0.0f,  0.0f
+	};
+	u16 unit_cube_indices[] = {
+		1,  13, 19,
+		1,  19, 7,
+		9,  6,  18,
+		9,  18, 21,
+		23, 20, 14,
+		23, 14, 17,
+		16, 4,  10,
+		16, 10, 22,
+		5,  2,  8,
+		5,  8,  11,
+		15, 12, 0,
+		15, 0,  3
+	};
+
+	ctx->unit_cube = render_model_from_arrays(unit_cube_vertices, unit_cube_normals,
+	                                          unit_cube_indices, countof(unit_cube_indices));
 }
 
 function void
