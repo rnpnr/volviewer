@@ -518,7 +518,7 @@ set_camera(u32 program, u32 location, v3 position, v3 normal, v3 orthogonal)
 }
 
 function void
-draw_volume_item(ViewerContext *ctx, VolumeDisplayItem *v, f32 rotation)
+draw_volume_item(ViewerContext *ctx, VolumeDisplayItem *v, f32 rotation, f32 translate_x)
 {
 	if (!v->texture) {
 		v->texture = load_complex_texture(ctx->arena, v->file_path, v->multi_file,
@@ -534,9 +534,9 @@ draw_volume_item(ViewerContext *ctx, VolumeDisplayItem *v, f32 rotation)
 	S.c[3] = (v4){{0,       0,       0,       1}};
 
 	m4 T;
-	T.c[0] = (v4){{1,              0, 0, v->translate_x}};
-	T.c[1] = (v4){{0,              1, 0, 0}};
-	T.c[2] = (v4){{0,              0, 1, 0}};
+	T.c[0] = (v4){{1, 0, 0, translate_x}};
+	T.c[1] = (v4){{0, 1, 0, 0}};
+	T.c[2] = (v4){{0, 0, 1, 0}};
 	T.c[3] = (v4){{0, 0, 0, 1}};
 
 	f32 sa = sin_f32(rotation);
@@ -550,9 +550,9 @@ draw_volume_item(ViewerContext *ctx, VolumeDisplayItem *v, f32 rotation)
 	m4 model_transform = m4_mul(m4_mul(R, S), T);
 	glProgramUniformMatrix4fv(program, MODEL_RENDER_MODEL_MATRIX_LOC, 1, 0, model_transform.E);
 
-	glProgramUniform1f(program, MODEL_RENDER_CLIP_FRACTION_LOC, 1 - v->clip_fraction);
-	glProgramUniform1f(program, MODEL_RENDER_THRESHOLD_LOC,     v->threshold);
-	glProgramUniform1ui(program, MODEL_RENDER_SWIZZLE_LOC,      v->swizzle);
+	glProgramUniform1f(program,  MODEL_RENDER_CLIP_FRACTION_LOC, 1 - v->clip_fraction);
+	glProgramUniform1f(program,  MODEL_RENDER_THRESHOLD_LOC,     v->threshold);
+	glProgramUniform1ui(program, MODEL_RENDER_SWIZZLE_LOC,       v->swizzle);
 
 	glBindTextureUnit(0, v->texture);
 	glBindVertexArray(ctx->unit_cube.vao);
@@ -603,9 +603,9 @@ update_scene(ViewerContext *ctx, f32 dt)
 
 	#if DRAW_ALL_VOLUMES
 	for (u32 i = 0; i < countof(volumes); i++)
-		draw_volume_item(ctx, volumes + i, angle);
+		draw_volume_item(ctx, volumes + i, angle, volumes[i].translate_x);
 	#else
-	draw_volume_item(ctx, volumes + single_volume_index, angle);
+	draw_volume_item(ctx, volumes + single_volume_index, angle, 0);
 	#endif
 
 	/* NOTE(rnp): resolve multisampled scene */
