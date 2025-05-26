@@ -212,16 +212,18 @@ load_complex_texture(Arena arena, c8 *file_path, b32 multi_file, u32 width, u32 
 
 	if (multi_file) {
 		/* NOTE(rnp): assumes single plane */
+		Arena start = arena;
 		for (u32 i = 0; i < depth; i++) {
+			arena = start;
 			Stream spath = arena_stream(arena);
 			stream_printf(&spath, file_path, i);
 			str8 path = arena_stream_commit_zero(&arena, &spath);
 			str8 raw  = os_read_whole_file(&arena, (char *)path.data);
-			glTextureSubImage3D(result, 0, 0, 0, i, width, height, 1, GL_RG, GL_FLOAT, raw.data);
+			if (raw.len) glTextureSubImage3D(result, 0, 0, 0, i, width, height, 1, GL_RG, GL_FLOAT, raw.data);
 		}
 	} else {
 		str8 raw = os_read_whole_file(&arena, file_path);
-		glTextureSubImage3D(result, 0, 0, 0, 0, width, height, depth, GL_RG, GL_FLOAT, raw.data);
+		if (raw.len) glTextureSubImage3D(result, 0, 0, 0, 0, width, height, depth, GL_RG, GL_FLOAT, raw.data);
 	}
 	return result;
 }
