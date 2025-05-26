@@ -475,16 +475,19 @@ init_viewer(ViewerContext *ctx)
 		 1, -1, 1, 1,
 		 1,  1, 1, 0,
 	};
-	glGenVertexArrays(1, &rc->vao);
-	glBindVertexArray(rc->vao);
-	glGenBuffers(1, &rc->vbo);
-	glBindBuffer(GL_ARRAY_BUFFER, rc->vbo);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(overlay_vertices), overlay_vertices, GL_STATIC_DRAW);
-	glVertexAttribPointer(0, 2, GL_FLOAT, 0, 4 * sizeof(f32), 0);
-	glVertexAttribPointer(1, 2, GL_FLOAT, 0, 4 * sizeof(f32), (void *)(2 * sizeof(f32)));
-	glEnableVertexAttribArray(0);
-	glEnableVertexAttribArray(1);
-	glBindVertexArray(0);
+	glCreateVertexArrays(1, &rc->vao);
+	glCreateBuffers(1, &rc->vbo);
+
+	glNamedBufferData(rc->vbo, sizeof(overlay_vertices), overlay_vertices, GL_STATIC_DRAW);
+
+	glEnableVertexArrayAttrib(rc->vao, 0);
+	glEnableVertexArrayAttrib(rc->vao, 1);
+	glVertexArrayVertexBuffer(rc->vao, 0, rc->vbo, 0,               4 * sizeof(f32));
+	glVertexArrayVertexBuffer(rc->vao, 1, rc->vbo, 2 * sizeof(f32), 4 * sizeof(f32));
+	glVertexArrayAttribFormat(rc->vao, 0, 2, GL_FLOAT, 0, 0);
+	glVertexArrayAttribFormat(rc->vao, 1, 2, GL_FLOAT, 0, 2 * sizeof(f32));
+	glVertexArrayAttribBinding(rc->vao, 0, 0);
+	glVertexArrayAttribBinding(rc->vao, 1, 0);
 
 	str8 render_overlay = str8("render_overlay.frag.glsl");
 	reload_shader(&ctx->os, render_overlay, (sptr)overlay_rc, ctx->arena);
