@@ -748,4 +748,6 @@ viewer_frame_step(ViewerContext *ctx, f32 dt)
 	glBindTextureUnit(0, ctx->output_target.textures[0]);
 	glBindVertexArray(ctx->overlay_render_context.vao);
 	glDrawArrays(GL_TRIANGLES, 0, 6);
+
+	ctx->should_exit |= glfwWindowShouldClose(ctx->window);
 }
