@@ -17,6 +17,8 @@
 #include "compiler.h"
 #include "util.h"
 
+#include "options.h"
+
 #include <stdarg.h>
 #include <stdio.h>
 
@@ -78,6 +80,9 @@ typedef struct {
 	b32   generic;
 	b32   report;
 	b32   sanitize;
+
+	b32   encode_video;
+	c8   *video_name;
 } Options;
 
 #define die(fmt, ...) die_("%s: " fmt, __FUNCTION__, ##__VA_ARGS__)
@@ -351,11 +356,12 @@ str8_equal(str8 a, str8 b)
 function void
 usage(char *argv0)
 {
-	die("%s [--debug] [--report] [--sanitize]\n"
-	    "    --debug:       dynamically link and build with debug symbols\n"
-	    "    --generic:     compile for a generic target (x86-64-v3 or armv8 with NEON)\n"
-	    "    --report:      print compilation stats (clang only)\n"
-	    "    --sanitize:    build with ASAN and UBSAN\n"
+	die("%s [--debug] [--report] [--sanitize] [--encode-video 'output']\n"
+	    "    --debug:         dynamically link and build with debug symbols\n"
+	    "    --generic:       compile for a generic target (x86-64-v3 or armv8 with NEON)\n"
+	    "    --report:        print compilation stats (clang only)\n"
+	    "    --sanitize:      build with ASAN and UBSAN\n"
+	    "    --encode-video:  encode '" RAW_OUTPUT_PATH "' to 'output'\n"
 	    , argv0);
 }
 
@@ -370,6 +376,10 @@ parse_options(s32 argc, char *argv[])
 		str8 str    = c_str_to_str8(arg);
 		if (str8_equal(str, str8("--debug"))) {
 			result.debug = 1;
+		} else if (str8_equal(str, str8("--encode-video"))) {
+			result.encode_video = 1;
+			if (argc) result.video_name = shift(argv, argc);
+			else      usage(argv0);
 		} else if (str8_equal(str, str8("--generic"))) {
 			result.generic = 1;
 		} else if (str8_equal(str, str8("--report"))) {
@@ -432,6 +442,22 @@ cmd_append_ldflags(Arena *a, CommandList *cc, b32 shared)
 	if (is_unix) cmd_append(a, cc, "-lGL");
 }
 
+function CommandList
+cmd_encode_video(Arena *a, c8 *output_name)
+{
+	CommandList result = {0};
+	cmd_append(a, &result, "ffmpeg", "-y",
+	           "-framerate", str(OUTPUT_FRAME_RATE),
+	           "-f",         "rawvideo",
+	           "-pix_fmt",   "abgr",
+	           "-s:v",       str(RENDER_TARGET_WIDTH) "x" str(RENDER_TARGET_HEIGHT),
+	           "-i",         RAW_OUTPUT_PATH,
+	           "-c:v",       "libx265",
+	           "-crf",       "22",
+	           output_name, (void *)0);
+	return result;
+}
+
 extern s32
 main(s32 argc, char *argv[])
 {
@@ -440,13 +466,18 @@ main(s32 argc, char *argv[])
 
 	Options options = parse_options(argc, argv);
 
-	CommandList c = cmd_base(&arena, &options);
-	if (is_unix) cmd_append(&arena, &c, "-D_GLFW_X11");
-	cmd_append(&arena, &c, "-Iexternal/glfw/include");
+	CommandList c;
+	if (!options.encode_video) {
+		c = cmd_base(&arena, &options);
+		if (is_unix) cmd_append(&arena, &c, "-D_GLFW_X11");
+		cmd_append(&arena, &c, "-Iexternal/glfw/include");
 
-	cmd_append(&arena, &c, OS_MAIN, "external/rglfw.c", "-o", "volviewer");
-	cmd_append_ldflags(&arena, &c, options.debug);
-	cmd_append(&arena, &c, (void *)0);
+		cmd_append(&arena, &c, OS_MAIN, "external/rglfw.c", "-o", "volviewer");
+		cmd_append_ldflags(&arena, &c, options.debug);
+		cmd_append(&arena, &c, (void *)0);
+	} else {
+		c = cmd_encode_video(&arena, options.video_name);
+	}
 
 	return !run_synchronous(arena, &c);
 }
