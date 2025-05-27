@@ -209,6 +209,9 @@ load_complex_texture(Arena arena, c8 *file_path, b32 multi_file, u32 width, u32 
 	glTextureStorage3D(result, 1, GL_RG32F, width, height, depth);
 	glTextureParameteri(result, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT);
 	glTextureParameteri(result, GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT);
+	glTextureParameteri(result, GL_TEXTURE_WRAP_R, GL_MIRRORED_REPEAT);
+	glTextureParameteri(result, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTextureParameteri(result, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
 	if (multi_file) {
 		/* NOTE(rnp): assumes single plane */
@@ -225,6 +228,7 @@ load_complex_texture(Arena arena, c8 *file_path, b32 multi_file, u32 width, u32 
 		str8 raw = os_read_whole_file(&arena, file_path);
 		if (raw.len) glTextureSubImage3D(result, 0, 0, 0, 0, width, height, depth, GL_RG, GL_FLOAT, raw.data);
 	}
+
 	return result;
 }
 
