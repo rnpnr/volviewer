@@ -315,7 +315,7 @@ function void
 check_rebuild_self(Arena arena, s32 argc, char *argv[])
 {
 	char *binary = shift(argv, argc);
-	if (needs_rebuild(binary, __FILE__, "os_win32.c", "os_linux.c", "util.c", "util.h")) {
+	if (needs_rebuild(binary, __FILE__, "os_win32.c", "os_linux.c", "util.c", "util.h", "options.h")) {
 		Stream name_buffer = arena_stream(arena);
 		stream_append_str8s(&name_buffer, c_str_to_str8(binary), str8(".old"));
 		char *old_name = (char *)arena_stream_commit_zero(&arena, &name_buffer).data;
