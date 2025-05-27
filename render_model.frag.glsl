@@ -20,8 +20,7 @@ bool bounding_box_test(vec3 coord, float p)
 
 void main()
 {
-	vec3 tex_coord = u_swizzle? texture_coordinate.xzy : texture_coordinate;
-	float smp = length(texture(u_texture, tex_coord).xy);
+	float smp = length(texture(u_texture, texture_coordinate).xy);
 	float threshold_val = pow(10.0f, u_threshold / 20.0f);
 	smp = clamp(smp, 0.0f, threshold_val);
 	smp = smp / threshold_val;
@@ -39,7 +38,7 @@ void main()
 		out_colour = vec4(smp, smp, smp, 1);
 	}
 
-	//out_colour = vec4(textureQueryLod(u_texture, tex_coord).y, 0, 0, 1);
+	//out_colour = vec4(textureQueryLod(u_texture, texture_coordinate).y, 0, 0, 1);
 	//out_colour = vec4(abs(normal), 1);
 	//out_colour = vec4(1, 1, 1, smp);
 	//out_colour = vec4(smp * abs(normal), 1);

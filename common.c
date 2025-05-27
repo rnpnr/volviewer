@@ -408,6 +408,7 @@ init_viewer(ViewerContext *ctx)
 	"layout(location = " str(MODEL_RENDER_VIEW_MATRIX_LOC)   ") uniform mat4  u_view;\n"
 	"layout(location = " str(MODEL_RENDER_PROJ_MATRIX_LOC)   ") uniform mat4  u_projection;\n"
 	"layout(location = " str(MODEL_RENDER_CLIP_FRACTION_LOC) ") uniform float u_clip_fraction = 1;\n"
+	"layout(location = " str(MODEL_RENDER_SWIZZLE_LOC)       ") uniform bool  u_swizzle;\n"
 	"\n"
 	"\n"
 	"void main()\n"
@@ -415,7 +416,8 @@ init_viewer(ViewerContext *ctx)
 	"\tvec3 pos = v_position;\n"
 	"\tf_orig_texture_coordinate = (v_position + 1) / 2;\n"
 	"\tif (v_position.y == -1) pos.x = clamp(v_position.x, -u_clip_fraction, u_clip_fraction);\n"
-	"\tf_texture_coordinate = (pos + 1) / 2;\n"
+	"\tvec3 tex_coord = (pos + 1) / 2;\n"
+	"\tf_texture_coordinate = u_swizzle? tex_coord.xzy : tex_coord;\n"
 	//"\tf_normal    = normalize(mat3(u_model) * v_normal);\n"
 	"\tf_normal    = v_normal;\n"
 	"\tgl_Position = u_projection * u_view * u_model * vec4(pos, 1);\n"
@@ -433,7 +435,7 @@ init_viewer(ViewerContext *ctx)
 	"layout(location = " str(MODEL_RENDER_LOG_SCALE_LOC)     ") uniform bool  u_log_scale;\n"
 	"layout(location = " str(MODEL_RENDER_BB_COLOUR_LOC)     ") uniform vec4  u_bb_colour   = vec4(" str(BOUNDING_BOX_COLOUR) ");\n"
 	"layout(location = " str(MODEL_RENDER_BB_FRACTION_LOC)   ") uniform float u_bb_fraction = " str(BOUNDING_BOX_FRACTION) ";\n"
-	"layout(location = " str(MODEL_RENDER_SWIZZLE_LOC)       ") uniform bool u_swizzle;\n\n"
+	"\n"
 	"layout(binding = 0) uniform sampler3D u_texture;\n"
 	"\n#line 1\n");
 
