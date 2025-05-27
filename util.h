@@ -314,6 +314,9 @@ typedef struct {
 
 	b32 should_exit;
 
+	Arena video_arena;
+	sz    video_arena_offset;
+
 	void *window;
 } ViewerContext;
 

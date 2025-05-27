@@ -5,58 +5,23 @@
 #include <stdio.h>
 #include <stdarg.h>
 
-/* NOTE(rnp): for video output we will render a full rotation in this much time at the
- * the specified frame rate */
-#define OUTPUT_TIME_SECONDS     8.0f
-#define OUTPUT_FRAME_RATE      60.0f
-#define OUTPUT_BG_CLEAR_COLOUR (v4){{0.05, 0.05, 0.05, 1}}
+#include "options.h"
 
-#define OUTPUT_PATH "/tmp/out"
+#define RENDER_TARGET_SIZE   RENDER_TARGET_WIDTH, RENDER_TARGET_HEIGHT
+#define TOTAL_OUTPUT_FRAMES (OUTPUT_FRAME_RATE * OUTPUT_TIME_SECONDS - 1)
 
-#define RENDER_MSAA_SAMPLES    8
-#define RENDER_TARGET_SIZE     1920, 1080
-#define CAMERA_ELEVATION_ANGLE 25.0f
-#define CAMERA_RADIUS          200.0f
-
-#define BOUNDING_BOX_COLOUR    0.78, 0.07, 0.20, 1
-#define BOUNDING_BOX_FRACTION  0.007f
-
-typedef struct {
-	c8  *file_path;
-	u32  width;         /* number of points in data */
-	u32  height;
-	u32  depth;
-	v3   min_coord_mm;
-	v3   max_coord_mm;
-	f32  clip_fraction; /* fraction of half volume used to create pyramidal shape (0 for cube) */
-	f32  threshold;
-	f32  translate_x;   /* mm to translate by when multi display is active */
-	b32  swizzle;       /* 1 -> swap y-z coordinates when sampling texture */
-	b32  multi_file;    /* 1 -> depth == N-frames, file_path == fmt string */
-	u32  texture;
-} VolumeDisplayItem;
-
-#define DRAW_ALL_VOLUMES 1
-global u32 single_volume_index = 0;
-global VolumeDisplayItem volumes[] = {
-	/* WALKING FORCES */
-	{"./data/test/frame_%02u.bin", 512, 1024, 64, {{-18.5, -9.6, 5}}, {{18.5, 9.6, 42}}, 0.58, 62, 0, 0, 1},
-	/* RCA */
-	{"./data/tpw.bin", 512, 64, 1024, {{-9.6, -9.6, 5}}, {{9.6, 9.6, 42}}, 0, 85, -5 *  18.5, 1, 0},
-	{"./data/vls.bin", 512, 64, 1024, {{-9.6, -9.6, 5}}, {{9.6, 9.6, 42}}, 0, 82,  5 *  18.5, 1, 0},
-};
-
-#define MODEL_RENDER_MODEL_MATRIX_LOC  (0)
-#define MODEL_RENDER_VIEW_MATRIX_LOC   (1)
-#define MODEL_RENDER_PROJ_MATRIX_LOC   (2)
-#define MODEL_RENDER_CLIP_FRACTION_LOC (3)
-#define MODEL_RENDER_LOG_SCALE_LOC     (4)
-#define MODEL_RENDER_DYNAMIC_RANGE_LOC (5)
-#define MODEL_RENDER_THRESHOLD_LOC     (6)
-#define MODEL_RENDER_GAMMA_LOC         (7)
-#define MODEL_RENDER_BB_COLOUR_LOC     (8)
-#define MODEL_RENDER_BB_FRACTION_LOC   (9)
-#define MODEL_RENDER_SWIZZLE_LOC       (10)
+#define MODEL_RENDER_MODEL_MATRIX_LOC   0
+#define MODEL_RENDER_VIEW_MATRIX_LOC    1
+#define MODEL_RENDER_PROJ_MATRIX_LOC    2
+#define MODEL_RENDER_CLIP_FRACTION_LOC  3
+#define MODEL_RENDER_SWIZZLE_LOC        4
+#define MODEL_RENDER_LOG_SCALE_LOC      5
+#define MODEL_RENDER_DYNAMIC_RANGE_LOC  6
+#define MODEL_RENDER_THRESHOLD_LOC      7
+#define MODEL_RENDER_GAMMA_LOC          8
+#define MODEL_RENDER_BB_COLOUR_LOC      9
+#define MODEL_RENDER_BB_FRACTION_LOC   10
+#define MODEL_RENDER_GAIN_LOC          11
 
 #define CYCLE_T_UPDATE_SPEED 0.25f
 #define BG_CLEAR_COLOUR      (v4){{0.12, 0.1, 0.1, 1}}
@@ -299,8 +264,19 @@ key_callback(GLFWwindow *window, s32 key, s32 scancode, s32 action, s32 modifier
 		ctx->demo_mode = !ctx->demo_mode;
 
 	if (key == GLFW_KEY_F12 && action == GLFW_PRESS && ctx->output_frames_count == 0) {
-		ctx->output_frames_count = OUTPUT_TIME_SECONDS * OUTPUT_FRAME_RATE;
-		ctx->cycle_t = 0;
+		sz frames       = TOTAL_OUTPUT_FRAMES;
+		sz needed_bytes = sizeof(u32) * RENDER_TARGET_HEIGHT * RENDER_TARGET_WIDTH * frames;
+		if (!ctx->video_arena.beg) {
+			ctx->video_arena = os_alloc_arena(needed_bytes);
+			if (!ctx->video_arena.beg) {
+				fputs("failed to allocate space for output video, video "
+				      "won't be saved\n", stderr);
+			}
+		}
+		if (ctx->video_arena.beg) {
+			ctx->output_frames_count = TOTAL_OUTPUT_FRAMES;
+			ctx->cycle_t = 0;
+		}
 	}
 
 	if (key == GLFW_KEY_A && action != GLFW_RELEASE)
@@ -330,8 +306,6 @@ init_viewer(ViewerContext *ctx)
 	ctx->camera_radius = CAMERA_RADIUS;
 	ctx->camera_angle  = -CAMERA_ELEVATION_ANGLE * PI / 180.0f;
 	ctx->camera_fov    = 60.0f;
-
-	os_make_directory(OUTPUT_PATH);
 
 	if (!glfwInit()) os_fatal(str8("failed to start glfw\n"));
 
@@ -692,38 +666,24 @@ update_scene(ViewerContext *ctx, f32 dt)
 }
 
 function void
-export_frame(Arena arena, u32 texture, str8 out_directory, u32 frame_index, u32 width, u32 height)
-{
-	Stream spath = arena_stream(arena);
-	stream_append_str8(&spath, out_directory);
-	if (spath.widx > 0 && spath.data[spath.widx - 1] != OS_PATH_SEPARATOR_CHAR)
-		stream_append_byte(&spath, OS_PATH_SEPARATOR_CHAR);
-	stream_append_str8(&spath, str8("frame_"));
-	stream_append_u64_width(&spath, frame_index, 4);
-	stream_append_str8(&spath, str8(".bin"));
-	str8 path = arena_stream_commit_zero(&arena, &spath);
-
-	sz padding   = -(uintptr_t)arena.beg & (64 - 1);
-	sz available = arena.end - arena.beg - padding;
-	sz needed    = width * height * sizeof(u32);
-	if (available > needed) {
-		glGetTextureImage(texture, 0, GL_RGBA, GL_UNSIGNED_INT_8_8_8_8, needed, arena.beg);
-		str8 raw = {.len = needed, .data = arena.beg};
-		os_write_new_file((c8 *)path.data, raw);
-	}
-}
-
-function void
 viewer_frame_step(ViewerContext *ctx, f32 dt)
 {
 	if (ctx->do_update) {
 		update_scene(ctx, dt);
 		if (ctx->output_frames_count) {
-			u32 total_frames = OUTPUT_FRAME_RATE * OUTPUT_TIME_SECONDS;
-			u32 frame_index  = total_frames - ctx->output_frames_count--;
-			printf("Saving Frame: [%u/%u]\n", frame_index, total_frames);
-			export_frame(ctx->arena, ctx->output_target.textures[0], str8(OUTPUT_PATH),
-			             frame_index, RENDER_TARGET_SIZE);
+			u32 frame_index  = TOTAL_OUTPUT_FRAMES - ctx->output_frames_count--;
+			printf("Reading Frame: [%u/%u]\n", frame_index, (u32)TOTAL_OUTPUT_FRAMES - 1);
+			sz needed = ctx->output_target.size.w * ctx->output_target.size.h * sizeof(u32);
+			glGetTextureImage(ctx->output_target.textures[0], 0, GL_RGBA,
+			                  GL_UNSIGNED_INT_8_8_8_8, needed,
+			                  ctx->video_arena.beg + ctx->video_arena_offset);
+			ctx->video_arena_offset += needed;
+			if (!ctx->output_frames_count) {
+				str8 raw = {.len  = TOTAL_OUTPUT_FRAMES * needed,
+				            .data = ctx->video_arena.beg};
+				ctx->video_arena_offset = 0;
+				os_write_new_file(RAW_OUTPUT_PATH, raw);
+			}
 		}
 		ctx->do_update = 0;
 	}
