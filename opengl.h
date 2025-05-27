@@ -68,6 +68,7 @@ typedef ptrdiff_t GLintptr;
 	X(glObjectLabel,                         void,   (GLenum identifier, GLuint name, GLsizei length, const char *label)) \
 	X(glProgramUniform1f,                    void,   (GLuint program, GLint location, GLfloat v0)) \
 	X(glProgramUniform1ui,                   void,   (GLuint program, GLint location, GLuint v0)) \
+	X(glProgramUniform4fv,                   void,   (GLuint program, GLint location, GLsizei count, const GLfloat *value)) \
 	X(glProgramUniformMatrix4fv,             void,   (GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value)) \
 	X(glShaderSource,                        void,   (GLuint shader, GLsizei count, const GLchar **strings, const GLint *lengths)) \
 	X(glTextureParameteri,                   void,   (GLuint texture, GLenum pname, GLint param)) \

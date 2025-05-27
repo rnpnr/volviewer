@@ -409,6 +409,7 @@ init_viewer(ViewerContext *ctx)
 	"layout(location = " str(MODEL_RENDER_LOG_SCALE_LOC)     ") uniform bool  u_log_scale;\n"
 	"layout(location = " str(MODEL_RENDER_BB_COLOUR_LOC)     ") uniform vec4  u_bb_colour   = vec4(" str(BOUNDING_BOX_COLOUR) ");\n"
 	"layout(location = " str(MODEL_RENDER_BB_FRACTION_LOC)   ") uniform float u_bb_fraction = " str(BOUNDING_BOX_FRACTION) ";\n"
+	"layout(location = " str(MODEL_RENDER_GAIN_LOC)          ") uniform float u_gain        = 1.0f;\n"
 	"\n"
 	"layout(binding = 0) uniform sampler3D u_texture;\n"
 	"\n#line 1\n");
@@ -602,6 +603,7 @@ draw_volume_item(ViewerContext *ctx, VolumeDisplayItem *v, f32 rotation, f32 tra
 
 	glProgramUniform1f(program,  MODEL_RENDER_CLIP_FRACTION_LOC, 1 - v->clip_fraction);
 	glProgramUniform1f(program,  MODEL_RENDER_THRESHOLD_LOC,     v->threshold);
+	glProgramUniform1f(program,  MODEL_RENDER_GAIN_LOC,          v->gain);
 	glProgramUniform1ui(program, MODEL_RENDER_SWIZZLE_LOC,       v->swizzle);
 
 	glBindTextureUnit(0, v->texture);
@@ -650,6 +652,9 @@ update_scene(ViewerContext *ctx, f32 dt)
 	v3 camera = ctx->camera_position;
 	set_camera(program, MODEL_RENDER_VIEW_MATRIX_LOC, camera,
 	           v3_normalize(v3_sub(camera, (v3){0})), (v3){{0, 1, 0}});
+
+	glProgramUniform1ui(program, MODEL_RENDER_LOG_SCALE_LOC,     LOG_SCALE);
+	glProgramUniform1f(program,  MODEL_RENDER_DYNAMIC_RANGE_LOC, DYNAMIC_RANGE);
 
 	#if DRAW_ALL_VOLUMES
 	for (u32 i = 0; i < countof(volumes); i++)

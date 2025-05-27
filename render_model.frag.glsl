@@ -26,6 +26,9 @@ void main()
 	smp = smp / threshold_val;
 	smp = pow(smp, u_gamma);
 
+	float t = test_texture_coordinate.y;
+	smp = smp * smoothstep(-0.4, 1.1, t) * u_gain;
+
 	if (u_log_scale) {
 		smp = 20 * log(smp) / log(10);
 		smp = clamp(smp, -u_db_cutoff, 0) / -u_db_cutoff;
