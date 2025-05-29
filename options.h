@@ -29,7 +29,6 @@ typedef struct {
 	f32  threshold;
 	f32  translate_x;   /* mm to translate by when multi display is active */
 	b32  swizzle;       /* 1 -> swap y-z coordinates when sampling texture */
-	b32  multi_file;    /* 1 -> depth == N-frames, file_path == fmt string */
 	f32  gain;          /* uniform image gain */
 	u32  texture;
 } VolumeDisplayItem;
@@ -38,8 +37,8 @@ typedef struct {
 global u32 single_volume_index = 0;
 global VolumeDisplayItem volumes[] = {
 	/* WALKING FORCES */
-	{"./data/test/frame_%02u.bin", 512, 1024, 64, {{-20.5, -9.6, 5}}, {{20.5, 9.6, 50}}, 0.62, 72, 0, 0, 1, 3.7},
+	{"./data/walking.bin", 512, 1024, 64, {{-20.5, -9.6, 5}}, {{20.5, 9.6, 50}}, 0.62, 72, 0, 0, 3.7},
 	/* RCA */
-	{"./data/tpw.bin", 512, 64, 1024, {{-9.6, -9.6, 5}}, {{9.6, 9.6, 50}}, 0, 92, -5 *  18.5, 1, 0, 5},
-	{"./data/vls.bin", 512, 64, 1024, {{-9.6, -9.6, 5}}, {{9.6, 9.6, 50}}, 0, 89,  5 *  18.5, 1, 0, 5},
+	{"./data/tpw.bin", 512, 64, 1024, {{-9.6, -9.6, 5}}, {{9.6, 9.6, 50}}, 0, 92, -5 *  18.5, 1, 5},
+	{"./data/vls.bin", 512, 64, 1024, {{-9.6, -9.6, 5}}, {{9.6, 9.6, 50}}, 0, 89,  5 *  18.5, 1, 5},
 };

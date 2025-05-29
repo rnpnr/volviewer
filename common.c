@@ -3,7 +3,6 @@
 #include "GLFW/glfw3.h"
 
 #include <stdio.h>
-#include <stdarg.h>
 
 #include "options.h"
 
@@ -57,21 +56,6 @@ gl_debug_logger(u32 src, u32 type, u32 id, u32 lvl, s32 len, const char *msg, co
 	stream_append_str8s(e, str8("[OpenGL] "), (str8){.len = len, .data = (u8 *)msg}, str8("\n"));
 	os_write_file(ctx->os->error_handle, stream_to_str8(e));
 	stream_reset(e, 0);
-}
-
-function void
-stream_printf(Stream *s, const char *format, ...)
-{
-	va_list ap;
-
-	va_start(ap, format);
-	s32 length = vsnprintf(0, 0, format, ap);
-	s->errors |= (s->cap - s->widx) < (length + 1);
-	if (!s->errors) {
-		vsnprintf((char *)(s->data + s->widx), s->cap - s->widx, format, ap);
-		s->widx += length;
-	}
-	va_end(ap);
 }
 
 function u32
@@ -167,7 +151,7 @@ function FILE_WATCH_CALLBACK_FN(reload_shader)
 }
 
 function u32
-load_complex_texture(Arena arena, c8 *file_path, b32 multi_file, u32 width, u32 height, u32 depth)
+load_complex_texture(Arena arena, c8 *file_path, u32 width, u32 height, u32 depth)
 {
 	u32 result = 0;
 	glCreateTextures(GL_TEXTURE_3D, 1, &result);
@@ -178,21 +162,8 @@ load_complex_texture(Arena arena, c8 *file_path, b32 multi_file, u32 width, u32 
 	glTextureParameteri(result, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTextureParameteri(result, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
-	if (multi_file) {
-		/* NOTE(rnp): assumes single plane */
-		Arena start = arena;
-		for (u32 i = 0; i < depth; i++) {
-			arena = start;
-			Stream spath = arena_stream(arena);
-			stream_printf(&spath, file_path, i);
-			str8 path = arena_stream_commit_zero(&arena, &spath);
-			str8 raw  = os_read_whole_file(&arena, (char *)path.data);
-			if (raw.len) glTextureSubImage3D(result, 0, 0, 0, i, width, height, 1, GL_RG, GL_FLOAT, raw.data);
-		}
-	} else {
-		str8 raw = os_read_whole_file(&arena, file_path);
-		if (raw.len) glTextureSubImage3D(result, 0, 0, 0, 0, width, height, depth, GL_RG, GL_FLOAT, raw.data);
-	}
+	str8 raw = os_read_whole_file(&arena, file_path);
+	if (raw.len) glTextureSubImage3D(result, 0, 0, 0, 0, width, height, depth, GL_RG, GL_FLOAT, raw.data);
 
 	return result;
 }
@@ -572,7 +543,7 @@ function void
 draw_volume_item(ViewerContext *ctx, VolumeDisplayItem *v, f32 rotation, f32 translate_x)
 {
 	if (!v->texture) {
-		v->texture = load_complex_texture(ctx->arena, v->file_path, v->multi_file,
+		v->texture = load_complex_texture(ctx->arena, v->file_path,
 		                                  v->width, v->height, v->depth);
 	}
 
